@@ -1,7 +1,7 @@
 binPath = ../bin
 libPath = ../lib
 
-progs = $(notdir $(wildcard contiguityPlot.py))
+progs = $(notdir $(wildcard getPlots.py contiguityPlot.py coveragePlot.py))
 
 .PHONY: %.all
 
