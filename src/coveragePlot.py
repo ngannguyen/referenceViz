@@ -26,11 +26,18 @@ class Sample(list):
         for i in range( len(items) ):
             items[i] = int( items[i] )
             sum += items[i]
-        for i in range( 1, len(items) ):
-            items[i] += items[i -1] 
-        for i in range( len(items) ):
-            items[i] /= float(sum)
         self.baseCoverages = items
+
+        self.relativeBaseCoverages = []
+        for item in items:
+            self.relativeBaseCoverages.append( item/float(sum) )
+
+        #list = []
+        #culm = 0
+        #for i in range( len(items) - 1, -1, -1 ):
+        #    culm += items[i]
+        #    list.append( culm/float(sum) )
+        #self.culmBaseCoverages = list
 
 class Stats( list ): #each Stats represents one input XML file
     def __init__( self, name ):
@@ -38,51 +45,93 @@ class Stats( list ): #each Stats represents one input XML file
     def setRefName( self, refname ):
         self.refname = refname
 
-def drawData( axes, stats ):
+def drawData( axes, stats, isAbs ):
+    #if isAbs, draw absolute values. If not, draw proportion (relative values)
     lines = []
     linenames = []
     ydataList = [] 
     #initialize ydataList:
-    for i in range( len(stats[0].baseCoverages) ):
+    #for i in range( len(stats[0].baseCoverages) - len(stats), len(stats[0].baseCoverages) ):
+    for i in range( len(stats) ): #each coverage level
         ydata = []
         for j in range( len(stats) ):#each sample
-            ydata.append( stats[j].baseCoverages[i] )
+            if isAbs:
+                ydata.append( stats[j].baseCoverages[i] )
+            else:
+                ydata.append( stats[j].relativeBaseCoverages[i] )
+
         ydataList.append(ydata)
-    
-    colors = libplot.getColors2( len(stats) )
-    colorindex = -1
-    for i in range( len(stats) -1, -1, -1 ):
+
+    #colors = libplot.getColors2( len(stats) )
+    colors = libplot.getColors0()
+    colorindex = 0
+    #for i in range( len(stats) -1, -1, -1 ):
+    x = arange( len(stats) ) #x axis represents the samples
+    barwidth = 0.6
+
+    #add bottom-most bar (number of bases that are in all samples)
+    l = axes.bar( x, ydataList[ len(ydataList) - 1 ], barwidth, color = colors[colorindex] ) 
+    lines.append( l )
+    culmulativeList = ydataList[ len(ydataList) - 1 ]
+
+    for i in range( len(ydataList) - 2, -1, -1 ):
         colorindex += 1
-        #l = axes.plot( ydataList[i], color=colors[colorindex], marker='.', markersize=9.0 )
-        l = axes.fill_between( x=range(len(ydataList[i])), y1=ydataList[i], y2=[0] * len(ydataList[i]) , facecolor=colors[colorindex], linewidth = 0.0)
+        l = axes.bar( x, ydataList[i], barwidth, color = colors[colorindex], bottom=culmulativeList )
         lines.append( l )
         linenames.append( i )
+        
+        #Update cumulative list:
+        for j in range( len(culmulativeList) ):
+            culmulativeList[j] += ydataList[i][j]
+        #l = axes.fill_between( x=range(len(ydataList[i])), y1=ydataList[i], y2=[0] * len(ydataList[i]) , facecolor=colors[colorindex], linewidth = 0.0)
     libplot.editSpine( axes )
     axes.set_title("Coverage across samples")
     pyplot.xlabel("Samples")
-    pyplot.ylabel("Cumulative coverage")
+    pyplot.ylabel("Coverage")
+
+    #set ticks:
+    samples = []
+    for sample in stats:
+        samples.append( sample.name )
+    fontP = FontProperties()
+    fontP.set_size('small')
+    pyplot.xticks( x + barwidth/2., samples, rotation=45, fontproperties=fontP )
+    pyplot.yticks( fontproperties=fontP )    
+    
+    #for label in axes.yaxis.get_ticklabels():
+    #    label.fontproperties = fontP
+    #    label.set_rotation( 45 )
+    box = axes.get_position()
+    #axes.set_position( [box.x0, box.y0, box.width, box.height * 0.8] )
+
+    axes.xaxis.set_ticks_position( 'bottom' )
+    axes.yaxis.set_ticks_position( 'left' )
+    if not isAbs:
+        axes.set_ylim(0, 1)
+
     return lines, linenames
 
-def drawCoveragePlot( options, stats ):
-    options.out = os.path.join(options.outdir, "coverage_" +  stats.refname)
+def drawCoveragePlot( options, stats, isAbs ):
+    prefix = "coverage_"
+    if not isAbs:
+        prefix = "rel_coverage_"
+    options.out = os.path.join(options.outdir, prefix +  stats[0].referenceName)
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
-    axes = libplot.setAxes( fig )
+    axes = fig.add_axes( [0.14, 0.2, 0.8, 0.6] )
+    #axes = libplot.setAxes( fig )
 
-    lines, linenames = drawData( axes, stats )
+    lines, linenames = drawData( axes, stats, isAbs )
     #legend = pyplot.legend( lines, linenames, numpoints=1 )
     #legend._drawFrame=False
 
     #libplot.setTicks( axes )
-    samples = []
-    for sample in stats:
-        samples.append(sample.name)
-    axes.set_xticks( range(0, len(stats)) )
-    axes.set_xticklabels( samples )
-    for label in axes.xaxis.get_ticklabels():
-        label.set_rotation( 90 )
-
-    axes.xaxis.set_ticks_position( 'bottom' )
-    axes.yaxis.set_ticks_position( 'left' )
+    #samples = []
+    #for sample in stats:
+    #    samples.append(sample.name)
+    #axes.set_xticks( range(0, len(stats)) )
+    #axes.set_xticklabels( samples )
+    #for label in axes.xaxis.get_ticklabels():
+    #    label.set_rotation( 90 )
 
     libplot.writeImage( fig, pdf, options )
 
@@ -135,16 +184,20 @@ def main():
 
     statsList = readfiles( options )
 
-    #Sort the statslist:
-    #statsList = sorted( statsList, key=lambda x: x.baseCoverages[0], reverse=True)
-
+    #Sort the statslist in the increasing order of the singleton coverage:
+    for i in range( len(statsList) ):
+        statsList[i] = sorted( statsList[i], key=lambda x: x.baseCoverages[0] )
+    
     for stats in statsList:
-        drawCoveragePlot( options, stats )
+        #for sample in stats:
+            #print sample.culmBaseCoverages
+        drawCoveragePlot( options, stats, True )
+        drawCoveragePlot( options, stats, False )
 
-    if len(statsList) >= 2:
-        for i in range( len(statsList) -1 ):
-            for j in range( i+1, len(statsList) ):
-                drawCompareCoveragePlot( options, statsList[i], statsList[j])
+    #if len(statsList) >= 2:
+    #    for i in range( len(statsList) -1 ):
+    #        for j in range( i+1, len(statsList) ):
+    #            drawCompareCoveragePlot( options, statsList[i], statsList[j])
 
 if __name__ == "__main__":
     main()

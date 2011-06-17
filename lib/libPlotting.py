@@ -124,6 +124,17 @@ def getColors2( num ):
         colors2.append( colors[index] )
     return colors2
 
+def getColors0():
+    colors = [ "#1f77b4", "#aec7e8", # blues 
+               "#ff7f0e", "#ffbb78", # oranges
+               "#2ca02c", "#98df8a", # greens
+               "#d62728", "#ff9896", # reds
+               "#9467bd", "#c5b0d5", # lavenders
+               "#CFB53B", "#D9D919", #gold
+               "#4A766E", "#48D1CC", #
+               "#F6A8B6", "#F6CCDA"] #pink
+
+    return colors
 
 def setAxes( fig ):                                                                     
     return fig.add_axes( [0.12, 0.1, 0.83, 0.85] )                                      

@@ -130,6 +130,12 @@ def drawCompareData( axes, xstats, ystats, title ):
         lines.append( l )
         sampleNames.append( xsample.name )
         #pyplot.line.set_label( xsample.name )
+    
+    #Draw the y=x line
+    x = [0, 1]
+    y = [0, 1]
+    axes.plot(x, y, color="0.9")
+
     libplot.editSpine( axes )
     axes.set_title(title)
     pyplot.xlabel(xstats.refname)
@@ -151,8 +157,9 @@ def drawContiguityPlot( options, stats ):
 
 def drawCompareContiguityPlot( options, xstats, ystats ):
     options.out = os.path.join(options.outdir, "contiguity_" + xstats.refname + "_" + ystats.refname)
-    fig, pdf = libplot.initImage( 8.0, 10.0, options )
-    axes = libplot.setAxes( fig )
+    fig, pdf = libplot.initImage( 8.0, 8.0, options )
+    axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
+    #axes = libplot.setAxes( fig )
 
     lines, sampleNames = drawCompareData( axes, xstats, ystats, options.title )
     
@@ -160,10 +167,10 @@ def drawCompareContiguityPlot( options, xstats, ystats ):
     fontP = FontProperties()
     fontP.set_size('small')
     box= axes.get_position()
-    axes.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    axes.set_position([box.x0, box.y0, box.width * 0.8, box.height * 0.8])
     #axes.legend(loc='bottom left', bbox_to_anchor=(1, 0.5))
 
-    legend = pyplot.legend( lines, sampleNames, numpoints = 1, prop= fontP, loc="best", bbox_to_anchor=(1, 0.5))
+    legend = pyplot.legend( lines, sampleNames, numpoints = 1, prop= fontP, loc="best", bbox_to_anchor=(1, 0.6))
     #legend = pyplot.figlegend( lines, sampleNames, 'lower right')
     legend._drawFrame=False
     #axes.set_xlim( 0, 1.001 )
