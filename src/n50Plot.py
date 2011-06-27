@@ -22,11 +22,10 @@ from matplotlib.font_manager import FontProperties
 #        self.name = sampleElement.attrib[ 'sampleName' ]
 #        self.refname = sampleElement.attrib[ 'referenceName' ]
 #        self.
-def drawN50data( axes, samples, keys ):
+def drawN50data( axes, samples, options ):
     #key can be 'blockN50', 'sequenceN50', 'contigPathN50', or 'scaffolfPathN50'
-    #colors = libplot.getColors2( len(keys) )
-    #colors = ["#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e",  "#d62728"] 
-    colors = ["blue", "green", "red", "magenta"]
+    keys = options.keys
+    colors = libplot.getColors0()
     #markers = [".", "s", "^", "--"]
 
     c = -1
@@ -36,6 +35,8 @@ def drawN50data( axes, samples, keys ):
         for sample in samples:
             y = int(sample.attrib[ key ])
             ydata.append( y )
+        if options.logscale:
+            ydata = log10( array(ydata) )
         
         c += 1
         l = axes.plot( ydata, color=colors[c], marker=".", markersize=10.0, linestyle='none' )
@@ -43,7 +44,10 @@ def drawN50data( axes, samples, keys ):
 
     libplot.editSpine( axes )
     pyplot.xlabel( 'Samples' )
-    pyplot.ylabel( 'N50' )
+    if options.logscale:
+        pyplot.ylabel( 'Log 10 of N50' )
+    else:
+        pyplot.ylabel( 'N50' )
 
     return lines
 
@@ -53,14 +57,15 @@ def getSample(samples, name):
             return s
     return None
 
-def drawCompareN50data( axes, xsamples, ysamples, keys ):
-    colors = ["blue", "green", "red", "magenta"]
-    markers = ["o", "s", "^", "--"]
+def drawCompareN50data( axes, xsamples, ysamples, options ):
+    keys = options.keys
+    colors = libplot.getColors0()
     c = -1
     lines = []
     xrefname = xsamples[0].attrib[ 'referenceName' ]
     yrefname = ysamples[0].attrib[ 'referenceName' ]
 
+    minval = inf
     maxval = 0
     for key in keys:
         xdata = []
@@ -73,31 +78,45 @@ def drawCompareN50data( axes, xsamples, ysamples, keys ):
             if ysample == None:
                 sys.stderr.write( "%s has %s sample, but %s doesn't\n" % (xrefname, name, yrefname) )
                 continue
-
-            xdata.append( int(xsample.attrib[ key ]) )
-            ydata.append( int(ysample.attrib[ key ]) )
+            
+            xval = int(xsample.attrib[key])
+            yval = int(ysample.attrib[key])
+            if xval > 0 and yval > 0:
+                xdata.append(xval)
+                ydata.append(yval)
+            #xdata.append( int(xsample.attrib[ key ]) )
+            #ydata.append( int(ysample.attrib[ key ]) )
         
+        if options.logscale:
+            xdata = log10( array(xdata) )
+            ydata = log10( array(ydata) )
+         
         c += 1
-        l = axes.plot( xdata, ydata, color=colors[c], marker=markers[c], markersize=5.0, linestyle='none' )
+        l = axes.plot( xdata, ydata, color=colors[c], marker=".", markersize=10.0, linestyle='none' )
         lines.append(l)
         
-        xmax = max( xdata )
-        ymax = max( ydata )
-        if xmax > maxval:
-            maxval = xmax
-        if ymax > maxval:
-            maxval = ymax
+        currmax = max( xdata.max(), ydata.max() )
+        if maxval < currmax:
+            maxval = currmax
+        
+        currmin = min( xdata.min(), ydata.min() )
+        if minval > currmin:
+            minval = currmin
     
+    if minval == -inf:
+        minval = 0
     #Draw y=x line
-    x = [ 0, maxval*1.1 ]
-    y = [ 0, maxval*1.1 ]
+    span = maxval - minval
+    #print "MaxVal: %f, MinVal: %f. Span: %f" % (maxval, minval, span)
+    x = [ minval - span*0.1, maxval + span*0.1 ]
+    y = [ minval - span*0.1, maxval + span*0.1 ]
     axes.plot( x, y, color="0.9" )
 
     libplot.editSpine( axes )
     pyplot.xlabel( xrefname )
     pyplot.ylabel( yrefname )
 
-    return lines, maxval
+    return lines, maxval, minval
 
 def getLeaves( allsamples ):
     #Return only samples that are leaves in the tree
@@ -128,7 +147,7 @@ def drawN50Plot( options, samples ):
     axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
 
     title = "N50"
-    lines = drawN50data( axes, samples, options.keys )
+    lines = drawN50data( axes, samples, options )
     axes.set_title(title)
 
     #Legend
@@ -166,7 +185,7 @@ def drawCompareN50Plot( options, xsamples, ysamples ):
     fig, pdf = libplot.initImage( 8.0, 8.0, options )
     axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
 
-    lines, maxval = drawCompareN50data( axes, xsamples, ysamples, options.keys )
+    lines, maxval, minval = drawCompareN50data( axes, xsamples, ysamples, options )
     title = "N50 %s versus %s" % (xrefname, yrefname)
     axes.set_title(title)
      
@@ -179,8 +198,9 @@ def drawCompareN50Plot( options, xsamples, ysamples ):
     legend._drawFrame = False
 
     libplot.setTicks( axes )
-    axes.set_xlim( -20, maxval*1.1 )
-    axes.set_ylim( -20, maxval*1.1 )
+    span = maxval - minval
+    axes.set_xlim( minval - span*0.1, maxval + span*0.1 )
+    axes.set_ylim( minval - span*0.1, maxval + span*0.1 )
     libplot.writeImage( fig, pdf, options )
 
 
@@ -202,6 +222,7 @@ def initOptions( parser ):
     parser.add_option('--keys', dest='keys', default='blockN50,contigPathN50,scaffoldPathN50',
                        help='comma separted list of which N50 statistics to be displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
+    parser.add_option('--abs', dest='logscale', action="store_false", default=True, help="If specified, the axes have the absolute scale, instead of log 10 as default")
 
 def checkOptions( args, options, parser ):
     if len(args) < 1:

@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 from numpy import *
 import libPlotting as libplot
 import matplotlib.pyplot as pyplot
-from matplotlib.ticker import LogLocator
+from matplotlib.ticker import *
 from matplotlib.font_manager import FontProperties
 
 class Bucket:
@@ -30,11 +30,20 @@ class Bucket:
         self.cumulativeCorrectPerSample = float( bucketElement.attrib[ 'cumulativeCorrectPerSample' ] )
         
 class Sample( list ):
-    def __init__( self, sampleElement ):
-        self.name = sampleElement.attrib[ 'sampleName' ]
-        self.reference = sampleElement.attrib[ 'referenceName' ]
+    def __init__(self, name, reference):
+        self.name = name
+        self.reference = reference
+    #def __init__( self, sampleElement ):
+    #    self.name = sampleElement.attrib[ 'sampleName' ]
+    #    self.reference = sampleElement.attrib[ 'referenceName' ]
+
+    def setBuckets( self, sampleElement ):
         for bucket in sampleElement.findall( 'bucket' ):
             self.append( Bucket( bucket ) )
+    
+    def setBuckets2( self, buckets ):
+        for bucket in buckets:
+            self.append( bucket )
 
 class Stats( list ): #each Stats represents one input XML file
     def __init__( self, name ):
@@ -70,11 +79,16 @@ def drawLegend( axes, lines, sampleNames, options ):
                          'from the number of lines plotted\n' )
 
 def drawData( axes, stats, title ):
-    halfsize = len(stats)/2 + len(stats)%2
-    colors = libplot.getColors2( halfsize )
-    styles = { 0:'-', 1:'--' }
+    #halfsize = len(stats)/2 + len(stats)%2
+    #colors = libplot.getColors2( halfsize )
+    #colors = libplot.getColors2( len(stats) )
+    #styles = { 0:'-', 1:'--' }
 
-    dash = 0
+    colors = libplot.getColors0()
+
+    #===========
+
+    #dash = 0
     colorindex = -1
     lines = []
     sampleNames = []
@@ -87,13 +101,15 @@ def drawData( axes, stats, title ):
             xdata.append( bucket.mid )
             ydata.append( bucket.correctPerSample )
         
-        if not dash:
-            colorindex += 1
-        
-        l = axes.plot( xdata, ydata, color=colors[colorindex], linestyle=styles[dash], linewidth=0.5 )
+        #if not dash:
+        #    colorindex += 1
+        colorindex +=1
+
+        l = axes.plot( xdata, ydata, color=colors[colorindex], linewidth=0.7 )
+        #l = axes.plot( xdata, ydata, color=colors[colorindex], linestyle=styles[dash], linewidth=0.5 )
         lines.append(l)
         
-        dash = not dash
+        #dash = not dash
     
     libplot.editSpine( axes )
     axes.set_title(title)
@@ -101,46 +117,160 @@ def drawData( axes, stats, title ):
     pyplot.ylabel("Correct proportion")
     return lines, sampleNames
 
-def drawCompareData( axes, xstats, ystats, title ):
-    #Only draw the overlapped samples
-    colors = libplot.getColors2( len(xstats) )
+def drawAggData( axes, data, sortedIndex, xmin, xmax, nbins=10 ):
+    data = sorted( data, key=lambda point:point[sortedIndex] )
+    #Above the x axis is point[sortedIndex] < point[1-sortedIndex]
+    updata = []
+    equaldata = []
+    downdata = []
+    for p in data:
+        if p[ sortedIndex ] < p[ 1 - sortedIndex ]:
+            updata.append( p[ sortedIndex ] )
+        elif p[ sortedIndex ] == p[ 1 - sortedIndex ]:
+            equaldata.append( p[ sortedIndex ] )
+        else:
+            downdata.append( p[ sortedIndex ] )
+
+    if sortedIndex == 0:
+        orientation = 'vertical'
+    else:
+        orientation = 'horizontal'
+    
+    bins = linspace( xmin, xmax, nbins )
+    ymin, ymax = libplot.bihist( updata, downdata, axes, bins, orientation, color='#0198E1' )
+    n3, bins3, patch3 = axes.hist( equaldata, bins=bins, orientation = orientation, color = '#800000' )
+    
+    if sortedIndex == 0:
+        ymax3 = max( [ i.get_height() for i in patch3 ] )
+    else:
+        ymax3 = max( [ i.get_width() for i in patch3 ] )
+    ymax = max( ymax3, ymax )
+    return ymin, ymax
+
+def intersect(sample1, sample2):
+    #sample1 and sample2 must be sorted by the 'mid' field
+    s1 = Sample( sample1.name, sample1.reference )
+    s2 = Sample( sample2.name, sample2.reference )
+
+    buckets1 = []
+    buckets2 = []
+    
+    i1 = 0
+    i2 = 0
+    while i1 < len(sample1) and i2 < len(sample2):
+        b1 = sample1[i1]
+        b2 = sample2[i2]
+        if b1.mid == b2.mid: #sample bucket
+            buckets1.append(b1)
+            buckets2.append(b2)
+            i1 += 1
+            i2 += 1
+        elif b1.mid > b2.mid:
+            i2 += 1
+        else:
+            i1 += 1
+
+    s1.setBuckets2( buckets1 )
+    s2.setBuckets2( buckets2 )
+
+    return s1, s2
+
+def drawCompareData( axesList, xstats, ystats, title ):
+    #Only draw the overlapped samples:
+    #colors = libplot.getColors2( len(xstats) )
+    colors = libplot.getColors0()
     colorindex = -1
     lines = []
     sampleNames = []
+    p0axes = axesList[0] #plot 0 axes (see def 'setCompareAxes')
+    aggData = [] #data points (buckets) of all samples
+    
     for xsample in xstats:
-        if xsample == ystats.refname:
-            continue
         ysample = getSample( ystats, xsample.name )
         if ysample is None:
             continue
-        if len(xsample) != len(ysample):
+        if len(xsample) != len(ysample): 
+            xsample, ysample = intersect(xsample, ysample)
             sys.stderr.write( "Error: Two xml files do not have the same number of buckets for sample %s\n" % xsample.name )
-            sys.exit( 1 )
-        xdata = []
-        ydata = []
+            #sys.exit( 1 )
+        
+        data = [] #list of (x,y) tuples
         colorindex += 1
         for i in range( len( xsample ) ): #each bucket
             if xsample[i].mid != ysample[i].mid:
                 sys.stderr.write( "Two xml files have different buckets\n " )
                 sys.exit( 1 )
-            xdata.append( xsample[i].correctPerSample )
-            ydata.append( ysample[i].correctPerSample )
+            data.append( (xsample[i].correctPerSample, ysample[i].correctPerSample) )
         
-        l = axes.plot( xdata, ydata, color=colors[colorindex], marker='.', markersize=4.0, linestyle='none' )
+        x2data = [ point[0] for point in data ]
+        y2data = [ point[1] for point in data ]
+        l = p0axes.plot( x2data, y2data, color=colors[colorindex], marker='.', markersize=4.0, linestyle='none' )
         lines.append( l )
         sampleNames.append( xsample.name )
-        #pyplot.line.set_label( xsample.name )
-    
+        aggData.extend( data )
+
     #Draw the y=x line
     x = [0, 1]
     y = [0, 1]
-    axes.plot(x, y, color="0.9")
+    p0axes.plot(x, y, color="#919191")
 
-    libplot.editSpine( axes )
-    axes.set_title(title)
-    pyplot.xlabel(xstats.refname)
-    pyplot.ylabel(ystats.refname)
-    return lines, sampleNames
+    libplot.editSpine( p0axes )
+    p0axes.set_title(title)
+    p0axes.set_xlabel(xstats.refname)
+    p0axes.set_ylabel(ystats.refname)
+    libplot.setTicks( p0axes )
+    
+    #legend:
+    fontP = FontProperties()
+    fontP.set_size('xx-small')
+    legend = p0axes.legend( lines, sampleNames, 'lower right', numpoints = 1, prop=fontP, ncol = 2)
+    legend._drawFrame = False
+    
+    p0axes.set_xlim( -0.005, 1.005 )
+    p0axes.set_ylim( -0.005, 1.005 )
+   
+    #box = p0axes.get_position()
+    #p0axes.set_position([box.x0, box.y0, box.width * 0.8, box.height * 0.8])
+    #legend = pyplot.legend( lines, sampleNames, numpoints = 1, prop= fontP, loc="best", bbox_to_anchor=(1, 0.6))
+    #legend._drawFrame=False
+    
+    #DRAW AGGREGATE DATA (plot 1 and plot 2):
+    nbins = 20
+    p1axes = axesList[1]
+    y1min, y1max = drawAggData( p1axes, aggData, 0, 0, 1, nbins )
+    y1lim = max( abs(y1min), abs(y1max) )
+    p1axes.set_ylim( -y1lim*1.1, y1lim*1.1 )
+    #p1axes.set_ylim( y1min*1.1, y1max*1.1 )
+    for loc, spine in p1axes.spines.iteritems():
+        if loc == 'left':
+            spine.set_position( ( 'outward', 10 ) )
+        spine.set_color( 'none' )
+    p1axes.axhline( 0, color = '#000000' )
+    p1axes.xaxis.set_major_locator( NullLocator() )
+    p1axes.xaxis.set_major_formatter( NullFormatter() )
+    p1axes.yaxis.set_ticks([-y1lim, 0, y1lim])
+    #p1axes.yaxis.set_ticklabels([-y1lim, 0, y1lim])
+    for l in p1axes.yaxis.get_ticklabels():
+        l.fontproperties = fontP
+    #p1axes.tick_params( axis='y', labelsize='small')
+
+    p2axes = axesList[2]
+    x2min, x2max = drawAggData( p2axes, aggData, 1, 0, 1, nbins )
+    x2lim = max( abs(x2min), abs(x2max) )
+    p2axes.set_xlim( -x2lim*1.1, x2lim*1.1 )
+    #p2axes.set_xlim( x2min*1.1, x2max*1.1 )
+    for loc, spine in p2axes.spines.iteritems():
+        if loc == 'bottom':
+            spine.set_position( ( 'outward', 10 ) )
+        spine.set_color( 'none' )
+    p2axes.axvline( 0, color = '#000000' )
+    p2axes.yaxis.set_major_locator( NullLocator() )
+    p2axes.yaxis.set_major_formatter( NullFormatter() )
+    p2axes.xaxis.set_ticks([-x2lim, 0, x2lim])
+    for l in p2axes.xaxis.get_ticklabels():
+        l.fontproperties = fontP
+        l.set_rotation( 45 )
+    return
 
 
 def drawContiguityPlot( options, stats ):
@@ -155,28 +285,40 @@ def drawContiguityPlot( options, stats ):
 
     libplot.writeImage( fig, pdf, options )
 
+def setCompareAxes( fig ):
+    """
+    Set axes for the CompareContiguityPlot. There are 3 subplots total:
+    Plot 0: The main plot where each axis represents one reference seq. Eg: xaxis <- cactusref, yaxis <- hg19
+    Plot 1: Right at the top of plot 1, shows frequencies of data points that lie above and below the y=x axis
+    Plot 2: To the right of plot 1, shows frequencies of data points that lie on the left and right the y=x axis
+    """
+    axesList = []
+    axleft = 0.09
+    axright = 0.98
+    axwidth = axright - axleft
+    axbottom = 0.08
+    axtop = 0.95
+    axheight = axtop - axbottom
+    margin = 0.07 #space between plots
+
+    plot0wh = 0.7 #plot1 width = plot1 height
+    plot1h = axheight - (plot0wh + margin) 
+    plot2w = plot1h
+
+    axesList.append( fig.add_axes( [axleft, axbottom, plot0wh, plot0wh] ) ) #Plot 0
+    axesList.append( fig.add_axes( [axleft, axbottom + plot0wh + margin, plot0wh, plot1h] ) ) #Plot 1
+    axesList.append( fig.add_axes( [axleft + plot0wh + margin, axbottom, plot2w, plot0wh] ) ) #Plot 2
+    return axesList
+
 def drawCompareContiguityPlot( options, xstats, ystats ):
     options.out = os.path.join(options.outdir, "contiguity_" + xstats.refname + "_" + ystats.refname)
     fig, pdf = libplot.initImage( 8.0, 8.0, options )
-    axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
-    #axes = libplot.setAxes( fig )
-
-    lines, sampleNames = drawCompareData( axes, xstats, ystats, options.title )
     
-    #legend:
-    fontP = FontProperties()
-    fontP.set_size('small')
-    box= axes.get_position()
-    axes.set_position([box.x0, box.y0, box.width * 0.8, box.height * 0.8])
-    #axes.legend(loc='bottom left', bbox_to_anchor=(1, 0.5))
+    #Set axes:
+    #axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
+    axesList = setCompareAxes( fig )
 
-    legend = pyplot.legend( lines, sampleNames, numpoints = 1, prop= fontP, loc="best", bbox_to_anchor=(1, 0.6))
-    #legend = pyplot.figlegend( lines, sampleNames, 'lower right')
-    legend._drawFrame=False
-    #axes.set_xlim( 0, 1.001 )
-    #axes.set_ylim( 0, 1.001 )
-    #setAxisLimits( axes, options.ycutoff )
-    libplot.setTicks( axes )
+    drawCompareData( axesList, xstats, ystats, options.title )
     
     libplot.writeImage( fig, pdf, options )
 
@@ -191,7 +333,9 @@ def readfiles( options ):
         for sample in root.findall( 'statsForSample' ):
             name = sample.attrib[ 'sampleName' ]
             if name != '' and name != 'ROOT':
-                stats.append( Sample( sample ) )
+                s = Sample( name, sample.attrib[ 'referenceName' ] )
+                s.setBuckets( sample )
+                stats.append( s )
         if len(stats) > 0:
             stats.setRefName( stats[0].reference )
 
@@ -201,7 +345,7 @@ def readfiles( options ):
 
 
 def initOptions( parser ):
-    parser.add_option('--title', dest='title', default='Contiguous Statistics',
+    parser.add_option('--title', dest='title', default='Contiguous (and Coverage) Statistics',
                        help='Based title of the plots, default=%default')
     parser.add_option('--legendElements', dest='legendElements',
                        help='Specify the legend text - comma separated list' )

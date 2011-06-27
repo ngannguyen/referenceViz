@@ -126,12 +126,13 @@ def getColors2( num ):
 
 def getColors0():
     colors = [ "#1f77b4", "#aec7e8", # blues 
+               "#9467bd", "#c5b0d5", # lavenders
                "#ff7f0e", "#ffbb78", # oranges
                "#2ca02c", "#98df8a", # greens
                "#d62728", "#ff9896", # reds
-               "#9467bd", "#c5b0d5", # lavenders
-               "#CFB53B", "#D9D919", #gold
                "#4A766E", "#48D1CC", #
+               "#DAA520", "#DBDB70", #gold
+               "#302B54", "#5959AB", #purple - blueish
                "#F6A8B6", "#F6CCDA"] #pink
 
     return colors
@@ -153,6 +154,22 @@ def setTicks( axes ):
     axes.yaxis.set_ticks_position( 'left' )                                             
     minorLocator = LogLocator( base=10, subs = range(1, 10) )                           
     axes.xaxis.set_minor_locator( minorLocator )                                        
-                                                   
-
+                                                
+def bihist( y1, y2, axes, bins, orientation, color=None ):
+    n1, bins1, patch1 = axes.hist( y1, bins=bins, orientation=orientation, color=color ) #Top hist
+    n2, bins2, patch2 = axes.hist( y2, bins=bins, orientation=orientation, color=color ) #bottom hist
+    #set ymax:
+    if orientation == 'vertical':
+        ymax = max( [ i.get_height() for i in patch1 ] )
+        for i in patch2:
+            i.set_height( -i.get_height() )
+        ymin = min( [ i.get_height() for i in patch2 ] )
+    elif orientation == 'horizontal':
+        ymax = max( [ i.get_width() for i in patch1 ] )
+        for i in patch2:
+            i.set_width( -i.get_width() )
+        ymin = min( [ i.get_width() for i in patch2 ] )
+    
+    #axes.set_ylim( ymin*1.1, ymax*1.1 )
+    return ymin, ymax
 

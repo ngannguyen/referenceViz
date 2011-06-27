@@ -108,6 +108,9 @@ def drawData( axes, stats, isAbs ):
     axes.yaxis.set_ticks_position( 'left' )
     if not isAbs:
         axes.set_ylim(0, 1)
+    axes.set_xlim(-0.5, len(stats) )
+    
+    axes.yaxis.grid(b=True, color="#A8A8A8", linestyle='-', linewidth=0.25)
 
     return lines, linenames
 

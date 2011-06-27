@@ -85,6 +85,8 @@ def drawSnpPlot( options, samples ):
 
     axes.xaxis.set_ticks_position( 'bottom' )
     axes.yaxis.set_ticks_position( 'left' )
+    axes.set_xlim( -0.5, len(samples) -0.5 )
+    
     libplot.writeImage( fig, pdf, options )
    
 def getSample( samples, name ):

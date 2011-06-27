@@ -40,6 +40,10 @@ class Setup(Target):
              system("mkdir -p %s" %outdir)
              self.addChildTarget( Contiguity(indir, outdir) )
              self.addChildTarget( Coverage(indir, outdir) )
+             self.addChildTarget( N50(indir, outdir) )
+             self.addChildTarget( Snp(indir, outdir) )
+             self.addChildTarget( IndelDist(indir, outdir) )
+             self.addChildTarget( IndelTab(indir, outdir) )
         #Cleanup:
         #self.setFollowOnTarget( Cleanup(self.output) )
 
@@ -57,8 +61,9 @@ class Contiguity(Target):
         pattern = "contiguityStats_.+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
-        
-        system("contiguityPlot.py %s --outdir %s" %(filesStr, self.outdir) )
+       
+        if len(files) >= 1:
+            system("contiguityPlot.py %s --outdir %s" %(filesStr, self.outdir) )
 
 class Coverage(Target):
     """
@@ -70,11 +75,63 @@ class Coverage(Target):
 
     def run(self):
         infile = os.path.join(self.indir, "coverageStats.xml")
-        system("coveragePlot.py %s --outdir %s" %(infile, self.outdir))
+        if os.path.exists( infile ):
+            system("coveragePlot.py %s --outdir %s" %(infile, self.outdir))
 
+class N50(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time=0.00025)
+        self.indir = indir
+        self.outdir = outdir
 
+    def run(self):
+        pattern = "pathStats_.+\.xml"
+        files = getfiles(pattern, self.indir)
+        filesStr = " ".join(files)
+        sortkey = "scaffoldPathN50"
+        keys = "sequenceN50,blockN50,contigPathN50,scaffoldPathN50"
+        #keys = "blockN50,contigPathN50,scaffoldPathN50"
+        if len(files) >=1:
+            system("n50Plot.py %s --sortkey %s --keys %s --outdir %s" %(filesStr, sortkey, keys, self.outdir))
 
+class Snp(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time=0.00025)
+        self.indir = indir
+        self.outdir = outdir
 
+    def run(self):
+        pattern = "snpStats_.+\.xml"
+        files = getfiles(pattern, self.indir)
+        filesStr = " ".join(files)
+        if len(files) >=1:
+            system("snpPlot.py %s --outdir %s" %(filesStr, self.outdir))
+
+class IndelDist(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time = 0.00025)
+        self.indir = indir
+        self.outdir = outdir
+    
+    def run(self):
+        pattern = "pathStats_.+\.xml"
+        files = getfiles(pattern, self.indir)
+        filesStr = " ".join(files)
+        if len(files) >=1:
+            system("indelDistPlot.py %s --outdir %s" %(filesStr, self.outdir))
+
+class IndelTab(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time=0.00025)
+        self.indir = indir
+        self.outdir = outdir
+
+    def run(self):
+        pattern = "pathStats_.+\.xml"
+        files = getfiles(pattern, self.indir)
+        filesStr = " ".join(files)
+        if len(files) >=1:
+            system("indelTable.py %s --outdir %s" %(filesStr, self.outdir))
 
 def getfiles(pattern, indir):
     files = []
