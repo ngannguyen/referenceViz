@@ -27,6 +27,8 @@ class Setup(Target):
         Target.__init__(self, time=0.00025)
         self.indir = options.indir
         self.outdir = options.outdir
+        self.analyses = options.analyses
+        self.pdflatex = options.pdflatex
 
     def run(self):
          experiments = os.listdir(self.indir)
@@ -38,12 +40,18 @@ class Setup(Target):
 
              outdir = os.path.join(self.outdir, exp)
              system("mkdir -p %s" %outdir)
-             self.addChildTarget( Contiguity(indir, outdir) )
-             self.addChildTarget( Coverage(indir, outdir) )
-             self.addChildTarget( N50(indir, outdir) )
-             self.addChildTarget( Snp(indir, outdir) )
-             self.addChildTarget( IndelDist(indir, outdir) )
-             self.addChildTarget( IndelTab(indir, outdir) )
+             if 'contiguity' in self.analyses:
+                 self.addChildTarget( Contiguity(indir, outdir) )
+             if 'coverage' in self.analyses:
+                 self.addChildTarget( Coverage(indir, outdir) )
+             if 'n50' in self.analyses:
+                 self.addChildTarget( N50(indir, outdir) )
+             if 'snp' in self.analyses:
+                 self.addChildTarget( Snp(indir, outdir) )
+             if 'indeldist' in self.analyses:
+                 self.addChildTarget( IndelDist(indir, outdir) )
+             if 'indeltab' in self.analyses:
+                 self.addChildTarget( IndelTab(indir, outdir, self.pdflatex) )
         #Cleanup:
         #self.setFollowOnTarget( Cleanup(self.output) )
 
@@ -56,14 +64,13 @@ class Contiguity(Target):
         self.outdir = outdir
 
     def run(self):
-        #if self.indir == 'mhcHumanVariantsNsRemovedV0/.gitignore':
-        #    return
         pattern = "contiguityStats_.+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
        
         if len(files) >= 1:
             system("contiguityPlot.py %s --outdir %s" %(filesStr, self.outdir) )
+            system("contiguityPlot.py %s --outdir %s --includeCoverage" %(filesStr, self.outdir) )
 
 class Coverage(Target):
     """
@@ -117,14 +124,16 @@ class IndelDist(Target):
         pattern = "pathStats_.+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
+
         if len(files) >=1:
             system("indelDistPlot.py %s --outdir %s" %(filesStr, self.outdir))
 
 class IndelTab(Target):
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, pdflatex):
         Target.__init__(self, time=0.00025)
         self.indir = indir
         self.outdir = outdir
+        self.pdflatex = pdflatex
 
     def run(self):
         pattern = "pathStats_.+\.xml"
@@ -132,10 +141,19 @@ class IndelTab(Target):
         filesStr = " ".join(files)
         if len(files) >=1:
             system("indelTable.py %s --outdir %s" %(filesStr, self.outdir))
+            #Get make pdf for tex files:
+            if self.pdflatex:
+                prefix = "indelStats_"
+                for file in files:
+                    m = re.match( "pathStats_(.+)\.xml", os.path.basename(file) )
+                    outfile = os.path.join( self.outdir, prefix + m.group(1) + ".tex" )
+                    system( "pdflatex %s" %(outfile) )
+                system( "rm -f *.aux *.log" )
+
 
 def getfiles(pattern, indir):
     files = []
-    print "GETFILES %s\n" %indir
+    #print "GETFILES %s\n" %indir
     if not os.path.isdir(indir):
         print "%s is NOT DIR\n" % indir
         
@@ -147,12 +165,26 @@ def getfiles(pattern, indir):
 def initOptions( parser ):
     parser.add_option('-i', '--indir', dest='indir', help='Required. Location of all the experiments') 
     parser.add_option('-o', '--outdir', dest='outdir', help='Required. Output directory')
+    parser.add_option('-l', '--pdflatex', dest='pdflatex', action="store_true", default=False, help='If specified, convert tex files to pdf using "pdflatex" (This must be installed)')
+    parser.add_option('-a', '--analyses', dest='analyses', default='all', \
+                      help='Comma separated string of different analyses to perform.\n\
+                      Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,all].\n\
+                      The default string is "all", which means all the analyses included.')
 
 def checkOptions( args, options, parser ):
     if not options.indir:
         parser.error('Location of input experiments is required and not given.\n')
     if not options.outdir:
         parser.error('Output direcotry is required but not given.\n')
+    if re.search('all', options.analyses):
+        options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv'
+    options.analyses = (options.analyses).split(',')
+    alist = ['contiguity', 'coverage', 'n50', 'snp', 'indeldist', 'indeltab', 'cnv']
+    
+    for a in options.analyses:
+        if a not in alist:
+            parser.error('Analysis %s is unknown\n' % a)
+
 
 def main():
     usage = ( 'usage: %prog [options]'

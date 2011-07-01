@@ -59,6 +59,7 @@ def getSample(samples, name):
 
 def drawCompareN50data( axes, xsamples, ysamples, options ):
     keys = options.keys
+    lineNames = []
     colors = libplot.getColors0()
     c = -1
     lines = []
@@ -86,7 +87,9 @@ def drawCompareN50data( axes, xsamples, ysamples, options ):
                 ydata.append(yval)
             #xdata.append( int(xsample.attrib[ key ]) )
             #ydata.append( int(ysample.attrib[ key ]) )
-        
+        if len(xdata) == 0:
+            continue
+
         if options.logscale:
             xdata = log10( array(xdata) )
             ydata = log10( array(ydata) )
@@ -94,6 +97,7 @@ def drawCompareN50data( axes, xsamples, ysamples, options ):
         c += 1
         l = axes.plot( xdata, ydata, color=colors[c], marker=".", markersize=10.0, linestyle='none' )
         lines.append(l)
+        lineNames.append( key )
         
         currmax = max( xdata.max(), ydata.max() )
         if maxval < currmax:
@@ -116,7 +120,7 @@ def drawCompareN50data( axes, xsamples, ysamples, options ):
     pyplot.xlabel( xrefname )
     pyplot.ylabel( yrefname )
 
-    return lines, maxval, minval
+    return lines, lineNames, maxval, minval
 
 def getLeaves( allsamples ):
     #Return only samples that are leaves in the tree
@@ -185,7 +189,11 @@ def drawCompareN50Plot( options, xsamples, ysamples ):
     fig, pdf = libplot.initImage( 8.0, 8.0, options )
     axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
 
-    lines, maxval, minval = drawCompareN50data( axes, xsamples, ysamples, options )
+    lines, lineNames, maxval, minval = drawCompareN50data( axes, xsamples, ysamples, options )
+    if len(lines) == 0:
+        sys.stderr.write('Comparing N50 stats of %s and %s: All values are 0, no plot created\n' %(xrefname, yrefname) )
+        return
+
     title = "N50 %s versus %s" % (xrefname, yrefname)
     axes.set_title(title)
      
@@ -194,7 +202,7 @@ def drawCompareN50Plot( options, xsamples, ysamples ):
     fontP.set_size( 'small' )
     box = axes.get_position()
     axes.set_position( [box.x0, box.y0, box.width*0.8, box.height*0.8] )
-    legend = pyplot.legend( lines, options.keys, numpoints=1, prop=fontP, loc="best", bbox_to_anchor=(1, 0.5) )
+    legend = pyplot.legend( lines, lineNames, numpoints=1, prop=fontP, loc="best", bbox_to_anchor=(1, 0.5) )
     legend._drawFrame = False
 
     libplot.setTicks( axes )
