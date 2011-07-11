@@ -41,7 +41,11 @@ class Setup(Target):
              outdir = os.path.join(self.outdir, exp)
              system("mkdir -p %s" %outdir)
              if 'contiguity' in self.analyses:
-                 self.addChildTarget( Contiguity(indir, outdir) )
+                 pattern1 = "contiguityStats_.+\.xml"
+                 self.addChildTarget( Contiguity(indir, outdir, pattern1) )
+                 self.addChildTarget( Contiguity(indir, outdir, pattern1, includeCoverage=True) )
+                 pattern2 = "contiguityStatsNoDuplication_.+\.xml"
+                 self.addChildTarget( Contiguity(indir, outdir, pattern2, includeCoverage=True) )
              if 'coverage' in self.analyses:
                  self.addChildTarget( Coverage(indir, outdir) )
              if 'n50' in self.analyses:
@@ -58,19 +62,24 @@ class Setup(Target):
 class Contiguity(Target):
     """
     """
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, pattern, includeCoverage=False):
         Target.__init__(self, time=0.00025)
         self.indir = indir
         self.outdir = outdir
+        self.pattern = pattern
+        self.includeCoverage = includeCoverage
 
     def run(self):
-        pattern = "contiguityStats_.+\.xml"
-        files = getfiles(pattern, self.indir)
+        #pattern = "contiguityStats_.+\.xml"
+        files = getfiles(self.pattern, self.indir)
         filesStr = " ".join(files)
        
         if len(files) >= 1:
-            system("contiguityPlot.py %s --outdir %s" %(filesStr, self.outdir) )
-            system("contiguityPlot.py %s --outdir %s --includeCoverage" %(filesStr, self.outdir) )
+            if self.includeCoverage:
+                system("contiguityPlot.py %s --outdir %s --includeCoverage" %(filesStr, self.outdir) )
+            else:
+                system("contiguityPlot.py %s --outdir %s" %(filesStr, self.outdir) )
+
 
 class Coverage(Target):
     """

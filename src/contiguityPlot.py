@@ -11,7 +11,8 @@ import os, sys
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 
-from numpy import *
+#from numpy import *
+from numpy import linspace
 import libPlotting as libplot
 import matplotlib.pyplot as pyplot
 from matplotlib.ticker import *
@@ -290,7 +291,8 @@ def drawCompareData( axesList, xstats, ystats, options ):
 
 
 def drawContiguityPlot( options, stats ):
-    options.out = os.path.join(options.outdir, "contiguity_" + stats.refname) #name of output file
+    #options.out = os.path.join(options.outdir, "contiguity_" + stats.refname) #name of output file
+    options.out = os.path.join(options.outdir, options.exp + "_" + stats.refname) #name of output file
     if options.includeCov:
         options.out = options.out + "_incCov"
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
@@ -329,7 +331,8 @@ def setCompareAxes( fig ):
     return axesList
 
 def drawCompareContiguityPlot( options, xstats, ystats ):
-    options.out = os.path.join(options.outdir, "contiguity_" + xstats.refname + "_" + ystats.refname)
+    #options.out = os.path.join(options.outdir, "contiguity_" + xstats.refname + "_" + ystats.refname)
+    options.out = os.path.join(options.outdir, options.exp + "_" + xstats.refname + "_" + ystats.refname)
     if options.includeCov:
         options.out = options.out + "_incCov"
     fig, pdf = libplot.initImage( 8.0, 8.0, options )
@@ -375,13 +378,15 @@ def initOptions( parser ):
     parser.add_option('--includeCoverage', dest='includeCov', action="store_true", default=False, help='If specified, will include coverage info in the plots')
 
 def checkOptions( args, options, parser ):
-    if len(args) < 1:
-        parser.error('Please specify at least one contiguityStats file.\n')
     options.files = []
     for f in args:
         if not os.path.exists( f ):
             parser.error('%s does not exist\n' %f)
         options.files.append( os.path.abspath( f ) )
+    
+    if len(options.files) < 1:
+        parser.error('Please specify at least one valid contiguityStats file.\n')
+    options.exp = ( os.path.basename( options.files[0] ).split('_') )[0]
 
     #system("mkdir -p %s" % options.outdir)
     if options.legendElements:

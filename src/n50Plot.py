@@ -11,6 +11,7 @@ import os, sys
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 
+#from numpy import array, log10
 from numpy import *
 import libPlotting as libplot
 import matplotlib.pyplot as pyplot

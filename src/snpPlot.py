@@ -9,7 +9,7 @@ import os, sys
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 
-from numpy import *
+#from numpy import *
 import libPlotting as libplot
 import matplotlib.pyplot as pyplot
 from matplotlib.ticker import LogLocator

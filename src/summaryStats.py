@@ -10,7 +10,8 @@ import os, sys, re, time
 import xml.etree.ElementTree as ET
 from optparse import OptionParser
 
-from numpy import *
+#from numpy import *
+from numpy import array
 import libPlotting as libplot
 import matplotlib.pyplot as pyplot
 from matplotlib.ticker import *
