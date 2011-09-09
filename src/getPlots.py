@@ -56,6 +56,8 @@ class Setup(Target):
                  self.addChildTarget( IndelDist(indir, outdir) )
              if 'indeltab' in self.analyses:
                  self.addChildTarget( IndelTab(indir, outdir, self.pdflatex) )
+             if 'cnv' in self.analyses:
+                 self.addChildTarget( Cnv(indir, outdir) )
         #Cleanup:
         #self.setFollowOnTarget( Cleanup(self.output) )
 
@@ -148,25 +150,43 @@ class IndelTab(Target):
         pattern = "pathStats_.+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
+        pattern = "snpStats_.+\.xml"
+        files = getfiles(pattern, self.indir)
+        filesStr += " " + " ".join(files)
+
         if len(files) >=1:
             system("indelTable.py %s --outdir %s" %(filesStr, self.outdir))
             #Get make pdf for tex files:
             if self.pdflatex:
                 prefix = "indelStats_"
-                for file in files:
-                    m = re.match( "pathStats_(.+)\.xml", os.path.basename(file) )
-                    outfile = os.path.join( self.outdir, prefix + m.group(1) + ".tex" )
-                    system( "pdflatex %s" %(outfile) )
-                system( "rm -f *.aux *.log" )
+                outfile = os.path.join( self.outdir, prefix + "hg19-reference" + ".tex" )
+                system( "pdflatex %s" %(outfile) )
+                system( "mv %s %s" %("indelStats_*.pdf", self.outdir) )
+                system( "rm -f *.aux *.log")
+                #for file in files:
+                    #m = re.match( "pathStats_(.+)\.xml", os.path.basename(file) )
+                    #outfile = os.path.join( self.outdir, prefix + m.group(1) + ".tex" )
 
+class Cnv(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time=0.00025)
+        self.indir = indir
+        self.outdir = outdir
+
+    def run(self):
+        infile = os.path.join(self.indir, "copyNumberStats.xml")
+        if os.path.exists( infile ):
+            system("cnvPlot.py %s --outdir %s" %(infile, self.outdir))
 
 def getfiles(pattern, indir):
     files = []
     #print "GETFILES %s\n" %indir
     if not os.path.isdir(indir):
         print "%s is NOT DIR\n" % indir
-        
-    for file in os.listdir( indir ):
+    
+    filelist = os.listdir( indir )
+    filelist.sort()
+    for file in filelist:
         if re.search( pattern, file ):
             files.append( os.path.join( indir, file ) )
     return files

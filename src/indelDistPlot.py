@@ -91,7 +91,7 @@ def drawData( axesList, samples, samplesPerPlot, options ):
         sys.stderr.write( 'Number of axes must be even. Got %d\n' %len(axesList) )
         sys.exit( 1 )
 
-    colors = libplot.getColors0()
+    colors = libplot.getColors1()
     #styles = []
 
     c = -1
@@ -182,7 +182,7 @@ def drawData( axesList, samples, samplesPerPlot, options ):
 
 def drawPlots( options, samples ):
     #sort samples:
-    samples = sorted( samples, key=lambda s: s.attrib[ 'sampleName' ] )
+    #samples = sorted( samples, key=lambda s: s.attrib[ 'sampleName' ] )
 
     if len(samples) < 1:
         return
@@ -213,6 +213,7 @@ def initOptions( parser ):
     #parser.add_option('--ycutoff', dest='ycutoff', default=0.5, type='float',
     #                   help='Only points with y values from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
+    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2", help="Samples order")
     parser.add_option('--xlog', dest='xlogscale', default="true")
     parser.add_option('--ylog', dest='ylogscale', default="true")
 
@@ -224,6 +225,7 @@ def checkOptions( args, options, parser ):
         if not os.path.exists( file ):
             parser.error('File %s does not exit\n' % file)
         options.files.append( os.path.abspath( file ) )
+    options.samplesOrder = options.samplesOrder.split(',')
     #options.keys = options.keys.split(',')
 
 def main():
@@ -249,7 +251,16 @@ def main():
         statsListF.append( samples )
 
     for samples in statsListF:
-        drawPlots( options, samples )
+        sortedSamples = []
+        if len(options.samplesOrder) == 0:
+            sortedSamples = sorted(samples, key=lambda s:s.name)
+        else:
+            for name in options.samplesOrder:
+                for sample in samples:
+                    if sample.attrib['sampleName'] == name:
+                        sortedSamples.append( sample )
+
+        drawPlots( options, sortedSamples )
 
     #if len( statsListF ) >= 2:
     #    for i in range( len(statsListF) -1 ):

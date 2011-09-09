@@ -68,6 +68,11 @@ def initImage( width, height, options ):
    fig = plt.figure( figsize=( width, height ), dpi=options.dpi, facecolor='w' )
    return ( fig, pdf )
 
+def getPdf( name ):
+   import matplotlib.backends.backend_pdf as pltBack
+   pdf = pltBack.PdfPages( name + '.pdf' )
+   return pdf
+
 def writeImage( fig, pdf, options ):
    """
    writeImage assumes options contains outFormat and dpi.
@@ -135,6 +140,17 @@ def getColors0():
                "#302B54", "#5959AB", #purple - blueish
                "#F6A8B6", "#F6CCDA"] #pink
 
+    return colors
+
+def getColors1():
+    colors = ["#E41A1C", #ref/hg19
+              "#377EB8", "#4DAF4A", "#984EA3", #apd, cox, dbb
+              "#FF7F00", "#FFFF33", "#A65628", #mann, mcf, qbl
+              "#F781BF", #ssto
+              "#C2E699", "#78C679", "#238443", #NA12878, NA12891, NA12892
+              "#FED98E", "#FE9929", "#CC4C02", #NA19239, NA19238, NA19240
+              "#999999"] #panTro
+   
     return colors
 
 def setAxes( fig ):                                                                     

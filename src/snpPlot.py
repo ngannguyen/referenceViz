@@ -12,7 +12,8 @@ import xml.etree.ElementTree as ET
 #from numpy import *
 import libPlotting as libplot
 import matplotlib.pyplot as pyplot
-from matplotlib.ticker import LogLocator
+import matplotlib.pylab as pylab
+from matplotlib.ticker import *
 from matplotlib.font_manager import FontProperties
 
 
@@ -41,51 +42,139 @@ def readfiles( options ):
 
 def initOptions( parser ):
     parser.add_option( '--outdir', dest='outdir', default='.', help='Output directory' ) 
+    parser.add_option( '--numOutliners', dest='numOutliners', default=1, help='Number of outliners' ) 
 
 def checkOptions( args, options, parser ):
-    if len( args ) < 1:
-        parser.error( 'Please provide at least one snpStats xml file.\n' )
+    if len( args ) < 2:
+        parser.error( 'Please provide two snpStats xml files.\n' )
     options.files = []
     for f in args:
         if not os.path.exists(f):
             parser.error( 'File %s does not exist.\n'  % f )
         options.files.append( f )
 
-def drawSnpData( axes, samples ):
-    ydata = []
-    xlabels = []
-    for s in samples:
-        ydata.append( s.errPerSite )
-        xlabels.append( s.name )
-    axes.plot( ydata, marker='.', markersize=10.0, linestyle='none' )
-    libplot.editSpine( axes )
-    pyplot.xlabel( 'Samples' )
-    pyplot.ylabel( 'Snps per site' )
+def setAxes(fig, range1, range2):
+    axleft = 0.12
+    axright = 0.95
+    axwidth = axright - axleft
+    axbottom = 0.15
+    axtop = 0.95
+    axheight = axtop - axbottom
+    margin = 0.015
 
-    return xlabels
+    h1 = (axheight - margin)*(range1/(range1 + range2))
+    h2 = axheight - margin - h1
 
-def drawSnpPlot( options, samples ):
-    samples = sorted( samples, key=lambda s:s.errPerSite, reverse=True )
-    if len( samples ) < 1:
+    ax2 = fig.add_axes( [axleft, axbottom, axwidth, h2] )
+    ax = fig.add_axes( [axleft, axbottom + h2 + margin, axwidth, h1] )
+    return ax, ax2
+
+def drawSnpPlot( options, samples1, samples2 ):
+    #Sorted in decreasing order of errorPerSite in samples1
+    samples1 = sorted( samples1, key=lambda s:s.errPerSite, reverse=True )
+    if len( samples1 ) < 1:
         return
-    refname = samples[0].refname
-    options.out = os.path.join( options.outdir, 'snp_' + refname )
+    
+    refname1 = samples1[0].refname
+    refname2 = samples2[0].refname
+
+    y1data = [ s.errPerSite for s in samples1 ]
+    
+    xticklabels = [ s.name for s in samples1 ]
+    y2data = []
+    for name in xticklabels:
+        for s in samples2:
+            if s.name == name or s.name == refname1:
+                y2data.append(s.errPerSite)
+                break
+    #print y1data
+    #print y2data
+    #print xticklabels
+    if len(xticklabels) != len(y2data):
+        sys.stderr.write("Input file 1 and 2 do not have the same set of samples\n")
+        sys.exit( 1 )
+
+    for i in range(len(xticklabels)):
+        if xticklabels[i] == refname2:
+            xticklabels[i] = "%s/%s" %(refname2,refname1)
+
+    num = options.numOutliners
+    minOutlier = min( [min(y2data[0:num]), min(y1data[0:num])] ) - 0.001 
+    maxOutlier = max( [max(y2data[0:num]), max(y1data[0:num])] ) + 0.001
+    minMajority = min( [min(y2data[num:]), min(y1data[num:])] ) - 0.001
+    maxMajority = max( [max(y2data[num:]), max(y1data[num:])] ) + 0.001
+
+    options.out = os.path.join( options.outdir, 'snp' )
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
-    axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
+    ax, ax2 = setAxes(fig, maxOutlier - minOutlier, maxMajority - minMajority)
+    #ax = fig.add_subplot(211)
+    #ax2 = fig.add_subplot(212)
 
-    xlabels = drawSnpData( axes, samples )
+    #Plot the outliers:
+    l2 = ax.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
+    l1 = ax.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+
+    ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
+    ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+  
+    #Legend
+    fontP = FontProperties()
+    fontP.set_size("x-small")
+    legend = ax.legend([l1, l2], [refname1, refname2], 'upper right', numpoints=1, prop=fontP)
+    legend._drawFrame = False
+
+    d = .0001 # how big to make the diagonal lines in axes coordinates
+    ax.plot( (-1, 0), (minOutlier +d, minOutlier - d), color = "k", clip_on=False )
+    ax2.plot( (-1, 0), (maxMajority +d, maxMajority - d), color = "k", clip_on=False )
+    
+    ax.set_ylim( minOutlier, maxOutlier ) # outliers only
+    ax.set_xlim( -0.5, len(xticklabels) -0.5 )
+    dummyxticklabels = [ "" for l in xticklabels ]
+    ax.set_xticklabels( dummyxticklabels )
+    
+    #ytickpositions = ax.yaxis.get_majorticklocs()
+    #ytickpositions = [ ytickpositions[i] for i in range(0,len(ytickpositions),2) ]
+    step = 0.001
+    ytickpositions = []
+    ytickpos = 0.013
+    while ytickpos < maxOutlier:
+        ytickpositions.append(ytickpos)
+        ytickpos += step
+
+    ax.set_yticks( ytickpositions )
+        
+    #ax.xaxis.set_major_locator( NullLocator() )
+    #ax.xaxis.set_major_formatter( NullFormatter() )
+    
+    ax2.set_ylim( minMajority, maxMajority )
+    ax2.set_xlim( -0.5, len(xticklabels) -0.5 )
+
+    # hide the spines between ax and ax2
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.yaxis.set_ticks_position( 'left' )
+    ax.xaxis.set_ticks_position( 'none' )
+
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    ax2.xaxis.tick_bottom()
+    ax2.yaxis.set_ticks_position( 'left' )
+
+    ax2.set_xticks( range( 0, len(xticklabels) ) )
+    ax2.set_xticklabels( xticklabels )
+    for label in ax2.xaxis.get_ticklabels():
+        label.set_rotation( 45 )
+   
+    #ax.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    #ax.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    #ax2.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    #ax2.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+
+    ax2.set_xlabel( 'Samples' )
+    ax2.set_ylabel( 'Snps per site' )
     title = 'SNPs'
-    axes.set_title( title )
-
-    #set ticks
-    axes.set_xticks( range( 0, len(xlabels) ) )
-    axes.set_xticklabels( xlabels )
-    for label in axes.xaxis.get_ticklabels():
-        label.set_rotation( 90 )
-
-    axes.xaxis.set_ticks_position( 'bottom' )
-    axes.yaxis.set_ticks_position( 'left' )
-    axes.set_xlim( -0.5, len(samples) -0.5 )
+    ax.set_title( title )
     
     libplot.writeImage( fig, pdf, options )
    
@@ -95,6 +184,7 @@ def getSample( samples, name ):
             return s
     return None
 
+#=========== NOT NEED ANYMORE ===============
 def drawCompareSnpData( axes, xsamples, ysamples ):
     xdata = []
     ydata = []
@@ -138,6 +228,7 @@ def drawCompareSnpPlot( options, xsamples,  ysamples ):
     axes.set_xlim( -maxval*0.1, maxval*1.1 )
     axes.set_ylim( -maxval*0.1, maxval*1.1 )
     libplot.writeImage( fig, pdf, options )
+#============= END NOT NEED ANYMORE ==========
 
 def main():
     usage = ('Usage: %prog [options] file1.xml file2.xml\n\n')
@@ -151,13 +242,14 @@ def main():
     
     statsList = readfiles( options )
 
-    for samples in statsList:
-        drawSnpPlot( options, samples )
+    drawSnpPlot( options, statsList[0], statsList[1] )
+    #for samples in statsList:
+    #    drawSnpPlot( options, samples )
 
-    if len(statsList) >= 2:
-        for i in range( len(statsList) -1 ):
-            for j in range( i+1, len(statsList) ):
-                drawCompareSnpPlot( options, statsList[i], statsList[j] )
+    #if len(statsList) >= 2:
+    #    for i in range( len(statsList) -1 ):
+    #        for j in range( i+1, len(statsList) ):
+    #            drawCompareSnpPlot( options, statsList[i], statsList[j] )
 
     
 

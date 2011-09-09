@@ -86,7 +86,7 @@ def drawData( axes, stats, options ):
     #colors = libplot.getColors2( len(stats) )
     #styles = { 0:'-', 1:'--' }
 
-    colors = libplot.getColors0()
+    colors = libplot.getColors1()
 
     #===========
 
@@ -109,8 +109,10 @@ def drawData( axes, stats, options ):
         #if not dash:
         #    colorindex += 1
         colorindex +=1
+        #if colorindex == 1:
+        #    colorindex += 1
 
-        l = axes.plot( xdata, ydata, color=colors[colorindex], linewidth=0.7 )
+        l = axes.plot( xdata, ydata, color=colors[colorindex], linewidth=1 )
         #l = axes.plot( xdata, ydata, color=colors[colorindex], linestyle=styles[dash], linewidth=0.5 )
         lines.append(l)
         
@@ -187,8 +189,9 @@ def intersect(sample1, sample2):
 def drawCompareData( axesList, xstats, ystats, options ):
     #Only draw the overlapped samples:
     #colors = libplot.getColors2( len(xstats) )
-    colors = libplot.getColors0()
-    colorindex = -1
+    colors = libplot.getColors1()
+    #colorindex = -1
+    colorindex = 0
     lines = []
     sampleNames = []
     p0axes = axesList[0] #plot 0 axes (see def 'setCompareAxes')
@@ -368,7 +371,7 @@ def readfiles( options ):
 
 
 def initOptions( parser ):
-    parser.add_option('--title', dest='title', default='Contiguous Statistics',
+    parser.add_option('--title', dest='title', default='Contiguity',
                        help='Based title of the plots, default=%default')
     parser.add_option('--legendElements', dest='legendElements',
                        help='Specify the legend text - comma separated list' )
@@ -376,6 +379,7 @@ def initOptions( parser ):
                        help='Only points with y-value from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     parser.add_option('--includeCoverage', dest='includeCov', action="store_true", default=False, help='If specified, will include coverage info in the plots')
+    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2", help="Samples order")
 
 def checkOptions( args, options, parser ):
     options.files = []
@@ -388,9 +392,12 @@ def checkOptions( args, options, parser ):
         parser.error('Please specify at least one valid contiguityStats file.\n')
     options.exp = ( os.path.basename( options.files[0] ).split('_') )[0]
 
+    if options.includeCov and options.title == 'Contiguity':
+        options.title = 'Contiguity and Coverage'
     #system("mkdir -p %s" % options.outdir)
     if options.legendElements:
         options.legendElements = options.legendElements.split(',')
+    options.samplesOrder = options.samplesOrder.split(',')
 
 def main():
     usage = ( 'usage: %prog [options] file1.xml file2.xml\n\n'
@@ -406,14 +413,30 @@ def main():
     libplot.checkOptions( options, parser )
     
     statsList = readfiles( options )
-
+    
+    #Sort statsList:
+    sortedStatsList = []
     for stats in statsList:
+        sortedStats = Stats( stats.name )
+        sortedStats.setRefName( stats.refname )
+        if len(options.samplesOrder) == 0:
+            sortedSamples = sorted(stats, key=lambda s:s.name)
+            sortedStats.extend( sortedSamples )
+        else:
+            for name in options.samplesOrder:
+                for sample in stats:
+                    if sample.name == name:
+                        sortedStats.append( sample )
+
+        sortedStatsList.append( sortedStats )
+
+    for stats in sortedStatsList:
         drawContiguityPlot( options, stats )
         
-    if len(statsList) >= 2:
-        for i in range( len(statsList) -1 ):
-            for j in range( i + 1, len(statsList) ):
-                drawCompareContiguityPlot( options, statsList[i], statsList[j] )
+    if len(sortedStatsList) >= 2:
+        for i in range( len(sortedStatsList) -1 ):
+            for j in range( i + 1, len(sortedStatsList) ):
+                drawCompareContiguityPlot( options, sortedStatsList[i], sortedStatsList[j] )
 
 
 if __name__ == "__main__":
