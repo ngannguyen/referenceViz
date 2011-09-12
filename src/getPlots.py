@@ -51,7 +51,10 @@ class Setup(Target):
              if 'n50' in self.analyses:
                  self.addChildTarget( N50(indir, outdir) )
              if 'snp' in self.analyses:
-                 self.addChildTarget( Snp(indir, outdir) )
+                 pattern = "snpStats_.+\.xml"
+                 self.addChildTarget( Snp(indir, outdir, pattern) )
+                 pattern = "snpStatsIntersection_.+\.xml"
+                 self.addChildTarget( Snp(indir, outdir, pattern) )
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir) )
              if 'indeltab' in self.analyses:
@@ -113,14 +116,16 @@ class N50(Target):
             system("n50Plot.py %s --sortkey %s --keys %s --outdir %s" %(filesStr, sortkey, keys, self.outdir))
 
 class Snp(Target):
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, pattern):
         Target.__init__(self, time=0.00025)
         self.indir = indir
         self.outdir = outdir
+        self.pattern = pattern
 
     def run(self):
-        pattern = "snpStats_.+\.xml"
-        files = getfiles(pattern, self.indir)
+        #pattern = "snpStats_.+\.xml"
+        #pattern = "snpStatsIntersection_.+\.xml"
+        files = getfiles(self.pattern, self.indir)
         filesStr = " ".join(files)
         if len(files) >=1:
             system("snpPlot.py %s --outdir %s" %(filesStr, self.outdir))

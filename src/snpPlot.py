@@ -104,7 +104,8 @@ def drawSnpPlot( options, samples1, samples2 ):
     minMajority = min( [min(y2data[num:]), min(y1data[num:])] ) - 0.001
     maxMajority = max( [max(y2data[num:]), max(y1data[num:])] ) + 0.001
 
-    options.out = os.path.join( options.outdir, 'snp' )
+    basename = os.path.basename(options.files[0])
+    options.out = os.path.join( options.outdir, '%s' %(basename.split('_')[0]) )
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     ax, ax2 = setAxes(fig, maxOutlier - minOutlier, maxMajority - minMajority)
     #ax = fig.add_subplot(211)

@@ -75,8 +75,10 @@ def tab( f, samplesList, sampleNames ):
                     numDelsPerAlignedBase = float( sample.attrib['totalDeletionPerAlignedBase'] )
                     numDelsPerAlignedBase = prettyFloat(numDelsPerAlignedBase)
 
-                    numNonLinearOps = int(sample.attrib['totalIntraJoin']) + int(sample.attrib['totalInterJoin'])
-                    numNonLinearOpsPerAlignedBase = float(sample.attrib['totalInterJoinPerAlignedBase']) + float(sample.attrib['totalIntraJoinPerAlignedBase'])
+                    #numNonLinearOps = int(sample.attrib['totalIntraJoin']) + int(sample.attrib['totalInterJoin'])
+                    #numNonLinearOpsPerAlignedBase = float(sample.attrib['totalInterJoinPerAlignedBase']) + float(sample.attrib['totalIntraJoinPerAlignedBase'])
+                    numNonLinearOps = int(sample.attrib['totalIntraJoin'])
+                    numNonLinearOpsPerAlignedBase = float(sample.attrib['totalIntraJoinPerAlignedBase'])
                     numNonLinearOpsPerAlignedBase = prettyFloat(numNonLinearOpsPerAlignedBase)
                     break
             #Get the Snps#
