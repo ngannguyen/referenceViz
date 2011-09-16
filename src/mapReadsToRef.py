@@ -38,18 +38,20 @@ class Setup(Target):
         refpath = os.path.join( refpath, "bwaRef")
         system( "bwa index -p %s %s" %(refpath , options.ref) )
         logger.info("Bwa indexed reference %s at with prefix %s\n" %(options.ref, refpath) )
-        self.addChildTarget( IlluminaPaired(options, refpath) )
-        self.addChildTarget( IlluminaSingle(options, refpath) )
+        self.addChildTarget( Paired(options, refpath, "illumina", self.options.iMaxInsertSize) )
+        self.addChildTarget( Single(options, refpath, "illumina") )
         #GOt error running ssaha2 for 454paired (required 2 reads of the same pair to have the same length), so for now, use bwa
-        self.addChildTarget( Ls454Paired(options, refpath) )
+        self.addChildTarget( Paired(options, refpath, "ls454", self.options.ls454MaxInsertSize) )
+        #bwa sw (default setting) sometimes return hits with low identity percentage, as well as return chimera hits (so one read can potentially have 2, 3 hits)
+        self.addChildTarget( Single(options, refpath, "ls454") )
 
         #Run bwasw index (for ls454 single)
-        refpath = os.path.join( options.outdir, "bwaswRef" )
-        system("mkdir -p %s" %refpath)
-        refpath = os.path.join( refpath, "bwaswRef")
-        system( "bwa index -p %s -a bwtsw %s" %(refpath , options.ref) )
-        logger.info("Bwasw indexed reference %s at with prefix %s\n" %(options.ref, refpath) )
-        self.addChildTarget( Ls454Single(options, refpath) )
+        #refpath = os.path.join( options.outdir, "bwaswRef" )
+        #system("mkdir -p %s" %refpath)
+        #refpath = os.path.join( refpath, "bwaswRef")
+        #system( "bwa index -p %s -a bwtsw %s" %(refpath , options.ref) )
+        #logger.info("Bwasw indexed reference %s at with prefix %s\n" %(options.ref, refpath) )
+        #self.addChildTarget( Ls454Single(options, refpath) )
         
         #Run ssaha2 index:
         #refpath = os.path.join( options.outdir, "ssaha2Ref" )
@@ -66,13 +68,13 @@ class Setup(Target):
         #system("bwa index -c -p %s %s" )
 
         #Run bowtie for abi_solid reads:
-        #refpath = os.path.join( options.outdir, "bowtieRef" )
-        #system("mkdir -p %s" %refpath)
-        #refpath = os.path.join( refpath, "bowtieRef")
-        #system( "bowtie-build -C %s %s" %(options.ref, refpath))
+        refpath = os.path.join( options.outdir, "bowtieRef" )
+        system("mkdir -p %s" %refpath)
+        refpath = os.path.join( refpath, "bowtieRef")
+        system( "bowtie-build -C %s %s" %(options.ref, refpath))
         #abi_solid
-        #self.addChildTarget( SolidSingle(options, refpath) )
-        #self.addChildTarget( SolidPaired(options, refpath) )
+        self.addChildTarget( SolidSingle(options, refpath) )
+        self.addChildTarget( SolidPaired(options, refpath) )
 
         #Combine results:
         self.setFollowOnTarget( CombineResults(options) )
@@ -159,108 +161,65 @@ class SolidPaired(Target):
             system("mkdir -p %s" %solidPairedOutdir)
 
             logger.info("Setting up solidPaired runs\n")
-            pairNames = getPairNames( os.listdir(solidPairedPath) )
+            pairNames, nametail = getPairNames( os.listdir(solidPairedPath) )
             for pair in pairNames:
-                self.addChildTarget( RunSolidPaired(self.options, solidPairedOutdir, self.refpath, solidPairedPath, "%s_1.fastq" %(pair), "%s_2.fastq" %pair) )
+                self.addChildTarget( RunSolidPaired(self.options, solidPairedOutdir, self.refpath, solidPairedPath, "%s_1%s" %(pair, nametail), "%s_2%s" %(pair, nametail)) )
 
             #Merge stat files:
             self.setFollowOnTarget( MergeResults(solidPairedOutdir) )
             #Merge alignment files:
             #self.setFollowOnTarget( MergeBams(solidPairedOutdir) )
 
-class Ls454Single(Target):
-    def __init__(self, options, refpath):
+class Single(Target):
+    def __init__(self, options, refpath, machine):
         Target.__init__(self, time=0.0001)
         self.options = options
         self.refpath = refpath
+        self.machine = machine
     
     def run(self):
-        ls454SinglePath = os.path.join(self.options.readdir, "ls454", "single")
-        if os.path.exists( ls454SinglePath ):
-            ls454SingleOutdir = os.path.join(self.options.outdir, "ls454", "single")
-            system("mkdir -p %s" %ls454SingleOutdir)
+        inPath = os.path.join(self.options.readdir, self.machine, "single")
+        if os.path.exists( inPath ):
+            outdir = os.path.join(self.options.outdir, self.machine, "single")
+            system("mkdir -p %s" %outdir)
 
-            logger.info("Setting up ls454Single runs\n")
-            for file in os.listdir( ls454SinglePath ):
-                self.addChildTarget( RunLs454Single(self.options, ls454SingleOutdir, self.refpath, ls454SinglePath, file) )
+            logger.info("Setting up %sSingle runs\n" %self.machine)
+            for file in os.listdir( inPath ):
+                self.addChildTarget( RunBwaSingle(self.options, outdir, self.refpath, inPath, file) )
             
             #Merge stat files:
-            self.setFollowOnTarget( MergeResults(ls454SingleOutdir) )
+            self.setFollowOnTarget( MergeResults(outdir) )
             #Merge alignment files:
-            #self.setFollowOnTarget( MergeBams(ls454SingleOutdir) )
+            #self.setFollowOnTarget( MergeBams(outdir) )
 
-class Ls454Paired(Target):
-    def __init__(self, options, refpath):
+class Paired(Target):
+    def __init__(self, options, refpath, machine, maxInsert):
         Target.__init__(self, time=0.0001)
         self.options = options
         self.refpath = refpath
+        self.machine = machine
+        self.maxInsert = maxInsert
     
     def run(self):
-        ls454PairedPath = os.path.join(self.options.readdir, "ls454", "paired")
-        if os.path.exists( ls454PairedPath ):
-            ls454PairedOutdir = os.path.join(self.options.outdir, "ls454", "paired")
-            system("mkdir -p %s" %ls454PairedOutdir)
+        inPath = os.path.join(self.options.readdir, self.machine, "paired")
+        if os.path.exists( inPath ):
+            outdir = os.path.join(self.options.outdir, self.machine, "paired")
+            system("mkdir -p %s" % outdir)
 
-            logger.info("Setting up ls454Paired runs\n")
-            pairNames = getPairNames( os.listdir(ls454PairedPath) )
+            logger.info("Setting up %sPaired runs\n" %self.machine)
+            pairNames, nametail = getPairNames( os.listdir(inPath) )
             for pair in pairNames:
-                self.addChildTarget( RunLs454Paired(self.options, ls454PairedOutdir, self.refpath, ls454PairedPath, "%s_1.recal.fastq" %(pair), "%s_2.recal.fastq" %pair) )
+                self.addChildTarget( RunBwaPaired(self.options, outdir, self.refpath, inPath, "%s_1%s" %(pair, nametail), "%s_2%s" %(pair, nametail), self.maxInsert) )
 
             #Merge stat files:
-            self.setFollowOnTarget( MergeResults(ls454PairedOutdir) )
+            self.setFollowOnTarget( MergeResults(outdir) )
             #Merge alignment files:
             #self.setFollowOnTarget( MergeBams(ls454PairedOutdir) )
 
-class IlluminaPaired(Target):
-    def __init__(self, options, refpath):
-        Target.__init__(self, time=0.0001)
-        self.options = options
-        self.refpath = refpath
-    
-    def run(self):
-        #illuminaPairedEnd - use bwa sampe
-        illuminaPairedPath = os.path.join(self.options.readdir, "illumina", "paired")
-        if os.path.exists( illuminaPairedPath ):
-            illuminaPairedOutdir = os.path.join(self.options.outdir, "illumina", "paired")
-            system("mkdir -p %s" %illuminaPairedOutdir)
-
-            logger.info("Setting up IlluminaPaired runs\n")
-            pairNames = getPairNames( os.listdir(illuminaPairedPath) )
-            for pair in pairNames:
-                logger.info("Add child RunIlluminaPaired for %s\n" %pair)
-                self.addChildTarget( RunIlluminaPaired(self.options, illuminaPairedOutdir, self.refpath, illuminaPairedPath, "%s_1.recal.fastq" %(pair), "%s_2.recal.fastq" %pair) )
-            
-            #Merge stat files:
-            self.setFollowOnTarget( MergeResults(illuminaPairedOutdir) )
-            #Merge alignment files:
-            #self.setFollowOnTarget( MergeBams(illuminaPairedOutdir) )
-
-class IlluminaSingle(Target):
-    def __init__(self, options, refpath):
-        Target.__init__(self, time=0.0001)
-        self.options = options
-        self.refpath = refpath
-    
-    def run(self):
-        #Illumina Single Read - use bwa samse
-        illuminaSinglePath = os.path.join(self.options.readdir, "illumina", "single")
-        if os.path.exists( illuminaSinglePath ):
-            illuminaSingleOutdir = os.path.join(self.options.outdir, "illumina", "single")
-            system("mkdir -p %s" %illuminaSingleOutdir)
-
-            logger.info("Setting up IlluminaSingle runs\n")
-            for file in os.listdir( illuminaSinglePath ):
-                self.addChildTarget( RunIlluminaSingle(self.options, illuminaSingleOutdir, self.refpath, illuminaSinglePath, file) )
-         
-            #Merge stat files:
-            self.setFollowOnTarget( MergeResults(illuminaSingleOutdir) )
-            #Merge alignment files:
-            #self.setFollowOnTarget( MergeBams(illuminaSingleOutdir) )
-
-class RunIlluminaPaired(Target):
+class RunBwaPaired(Target):
     """
     """
-    def __init__(self, options, outdir, refpath, indir, reads1, reads2):
+    def __init__(self, options, outdir, refpath, indir, reads1, reads2, maxInsert):
         Target.__init__(self, time=18000)
         self.outdir = outdir
         self.ref = refpath
@@ -269,6 +228,7 @@ class RunIlluminaPaired(Target):
         self.name = reads1.split('_')[0]
         self.reads1 = reads1
         self.reads2 = reads2
+        self.maxInsert = maxInsert
 
     def run(self):
         localTempDir = self.getLocalTempDir()
@@ -290,7 +250,7 @@ class RunIlluminaPaired(Target):
         system("bwa aln -t %d %s %s > %s" %(self.options.numBwaThreads, reffile, reads2, sai2) )
 
         samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        system("bwa sampe -n 100 -a %d %s %s %s %s %s > %s" % (self.options.iMaxInsertSize, reffile, sai1, sai2, reads1, reads2, samfile))
+        system("bwa sampe -n 100 -a %d %s %s %s %s %s > %s" % (self.maxInsert, reffile, sai1, sai2, reads1, reads2, samfile))
 
         #getStats:
         sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
@@ -306,7 +266,7 @@ class RunIlluminaPaired(Target):
         #Cleanup:
         system("rm -R %s" %localTempDir)
 
-class RunIlluminaSingle(Target):
+class RunBwaSingle(Target):
     """
     """
     def __init__(self, options, outdir, refpath, indir, reads):
@@ -344,109 +304,10 @@ class RunIlluminaSingle(Target):
         if self.options.getMappedReads:
             #Filter out readPairs that have both reads unmapped:
             outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReads(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
-            #Move filtered alignment file back to output directory
-            system("cp %s.bam %s" %(outfilePrefix,self.outdir))
-            
-        #Cleanup:
-        system("rm -R %s" %localTempDir)
-
-class RunLs454Single(Target):
-    """
-    """
-    def __init__(self, options, outdir, refpath, indir, reads):
-        Target.__init__(self, time=18000)
-        self.outdir = outdir
-        self.ref = refpath
-        self.options = options
-        self.indir = indir
-        self.name = reads.split('.')[0]
-        self.reads = reads
-
-    def run(self):
-        localTempDir = self.getLocalTempDir()
-        #Copy ref to localTempDir:
-        refpath = os.path.join(localTempDir, "ref")
-        system("mkdir -p %s" %refpath)
-        system("cp %s* %s" %(self.ref, refpath))
-        reffile = os.path.join(refpath, os.path.basename(self.ref) )
-
-        #Copy input reads to localTempDir: 
-        reads = os.path.join(localTempDir, self.reads)
-        system("cp %s %s" %( os.path.join(self.indir, self.reads), reads ))
-
-        samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        system("bwa bwasw %s %s > %s" % ( reffile, reads, samfile))
-        
-        #samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        #system("ssaha2 -rtype 454 -output sam -outfile %s -save %s %s" % ( samfile, reffile, reads ))
-
-        #getStats:
-        sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
-        system("cp %s %s" %(statsFile, self.outdir))
-
-        if self.options.getMappedReads:
-            #Filter out readPairs that have both reads unmapped:
-            outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
             filterReadsSingle(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
             #Move filtered alignment file back to output directory
             system("cp %s.bam %s" %(outfilePrefix,self.outdir))
             
-        #Cleanup:
-        system("rm -R %s" %localTempDir)
-
-class RunLs454Paired(Target):
-    """
-    """
-    def __init__(self, options, outdir, refpath, indir, reads1, reads2):
-        Target.__init__(self, time=18000)
-        self.outdir = outdir
-        self.ref = refpath
-        self.options = options
-        self.indir = indir
-        self.name = reads1.split('_')[0]
-        self.reads1 = reads1
-        self.reads2 = reads2
-
-    def run(self):
-        localTempDir = self.getLocalTempDir()
-        #Copy ref to localTempDir:
-        refpath = os.path.join(localTempDir, "ref")
-        system("mkdir -p %s" %refpath)
-        system("cp %s* %s" %(self.ref, refpath))
-        reffile = os.path.join(refpath, os.path.basename(self.ref))
-
-        #Copy input reads to localTempDir: 
-        reads1 = os.path.join(localTempDir, self.reads1)
-        system("cp %s %s" %( os.path.join(self.indir, self.reads1), reads1 ))
-        reads2 = os.path.join(localTempDir, self.reads2)
-        system("cp %s %s" %( os.path.join(self.indir, self.reads2), reads2 ))
-       
-        #BWA
-        sai1 = os.path.join(localTempDir, "1.sai")
-        system("bwa aln -t %d %s %s > %s" %(self.options.numBwaThreads, reffile, reads1, sai1) )
-        sai2 = os.path.join(localTempDir, "2.sai")
-        system("bwa aln -t %d %s %s > %s" %(self.options.numBwaThreads, reffile, reads2, sai2) )
-
-        samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        #insertSize = 2750
-        system("bwa sampe -n 100 -a %d %s %s %s %s %s > %s" % (self.options.ls454MaxInsertSize, reffile, sai1, sai2, reads1, reads2, samfile))
-
-        #Ssaha2
-        #samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        #system("ssaha2 -rtype 454 -output sam -outfile %s -pair %d,%d -save %s %s %s" % (samfile, self.options.ls454InsertSizeMin, self.options.ls454InsertSizeMax, refhash, reads1, reads2))
-        
-        #getStats:
-        sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
-        system("cp %s %s" %(statsFile, self.outdir))
-
-        if self.options.getMappedReads:
-            #Filter out readPairs that have both reads unmapped:
-            outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReads(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
-            #Move filtered alignment file back to output directory
-            system("cp %s.bam %s" %(outfilePrefix,self.outdir))
-
         #Cleanup:
         system("rm -R %s" %localTempDir)
 
@@ -475,7 +336,7 @@ class RunSolidSingle(Target):
         system("cp %s %s" %( os.path.join(self.indir, self.reads), reads ))
 
         samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        system("bowtie -C -S -t %s %s %s" %(reffile, reads, samfile)) 
+        system("bowtie -p 3 -C -S -t %s %s %s" %(reffile, reads, samfile)) 
         
         #getStats:
         sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
@@ -484,7 +345,7 @@ class RunSolidSingle(Target):
         if self.options.getMappedReads:
             #Filter out readPairs that have both reads unmapped:
             outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReads(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
+            filterReadsSingle(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
             #Move filtered alignment file back to output directory
             system("cp %s.bam %s" %(outfilePrefix,self.outdir))
 
@@ -519,7 +380,7 @@ class RunSolidPaired(Target):
         system("cp %s %s" %( os.path.join(self.indir, self.reads2), reads2 ))
 
         samfile = os.path.join(localTempDir, "%s.sam" %self.name)
-        system("bowtie -C -S -t %s -1 %s -2 %s %s" %(reffile, reads1, reads2, samfile)) 
+        system("bowtie -p 3 -C -S -t %s -1 %s -2 %s %s" %(reffile, reads1, reads2, samfile)) 
 
         #getStats:
         sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
@@ -639,11 +500,19 @@ def filterReadsSingle(indir, samfile, outfilePrefix, ref):
 
 def getPairNames( files ):
     names = []
+    tail = ""
     for file in files:
         items = file.split("_")
         if items[0] not in names:
             names.append( items[0] )
-    return names
+            extra = '_'.join(items[1:])
+            extra = extra.lstrip('12')
+            if tail == "":
+                tail = extra
+            elif tail != extra:
+                sys.stderr.write('Input files must have the same name format! Found different ones: *%s *%s\n' %(tail, extra))
+                sys.exit(1)
+    return names, tail
 
 def decodeFlag(flag):
     flagDict = {"isPaired": 0, "properlyPaired":1, "unmapped":2, \
@@ -735,7 +604,7 @@ def initOptions( parser ):
     #parser.add_option('-ssaha2pe', dest='ssaha2pe', help='Comma separated list of input fastq files.')
     parser.add_option('-o', '--outdir', dest='outdir', default = ".", help='Output directory. Default is current directory')
     parser.add_option('-i', '--readdir', dest='readdir', help='Required argument, directory where input fastq files are. The directory should have this hierachy: readdir/sampleName/sequencingPlatform/pairedOrSingle/file*.fastq')
-    parser.add_option('--illuminaInsertSize', dest='iInsertSize', default = 200, type ="int", help="Insert size of illumina paired reads. Default = 200")
+    #parser.add_option('--illuminaInsertSize', dest='iInsertSize', default = 200, type ="int", help="Insert size of illumina paired reads. Default = 200")
     parser.add_option('--illuminaMaxInsertSize', dest='iMaxInsertSize', default = 1000, type = "int", help="Maximum allowed insert size of illumina paired reads. Default = 1000")
     parser.add_option('--454MaxInsertSize', dest='ls454MaxInsertSize', default = 5000, type = "int", help="Maximum allowed insert size of illumina paired reads. Default = 5000")
     #parser.add_option('--454InsertSizeMin', dest='ls454InsertSizeMin', default=1750, type="int", help="Insert size of 454 paired reads. Default=1750")
