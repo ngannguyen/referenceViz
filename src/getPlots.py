@@ -68,7 +68,7 @@ class Contiguity(Target):
     """
     """
     def __init__(self, indir, outdir, pattern, includeCoverage=False):
-        Target.__init__(self, time=0.00025)
+        Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
         self.pattern = pattern
@@ -90,7 +90,7 @@ class Coverage(Target):
     """
     """
     def __init__(self, indir, outdir):
-        Target.__init__(self, time=0.00025)
+        Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
 
@@ -101,7 +101,7 @@ class Coverage(Target):
 
 class N50(Target):
     def __init__(self, indir, outdir):
-        Target.__init__(self, time=0.00025)
+        Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
 
@@ -117,7 +117,7 @@ class N50(Target):
 
 class Snp(Target):
     def __init__(self, indir, outdir, pattern):
-        Target.__init__(self, time=0.00025)
+        Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
         self.pattern = pattern
@@ -132,7 +132,7 @@ class Snp(Target):
 
 class IndelDist(Target):
     def __init__(self, indir, outdir):
-        Target.__init__(self, time = 0.00025)
+        Target.__init__(self, time = 0.25)
         self.indir = indir
         self.outdir = outdir
     
@@ -146,7 +146,7 @@ class IndelDist(Target):
 
 class IndelTab(Target):
     def __init__(self, indir, outdir, pdflatex):
-        Target.__init__(self, time=0.00025)
+        Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
         self.pdflatex = pdflatex
@@ -174,7 +174,7 @@ class IndelTab(Target):
 
 class Cnv(Target):
     def __init__(self, indir, outdir):
-        Target.__init__(self, time=0.00025)
+        Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
 

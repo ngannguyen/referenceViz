@@ -24,7 +24,8 @@ class Setup(Target):
     Setup mapping runs
     """
     def __init__(self, options):
-        Target.__init__(self, time=0.00025)
+        #Target.__init__(self, time=0.00025)
+        Target.__init__(self)
         self.options = options
 
     def run(self):
@@ -82,7 +83,8 @@ class Setup(Target):
 
 class CombineResults(Target):
     def __init__(self, options):
-        Target.__init__(self, time=0.0001)
+        Target.__init__(self)
+        #Target.__init__(self, time=0.0025)
         self.options = options
 
     def run(self):
@@ -106,19 +108,21 @@ class CombineResults(Target):
                             if header == "":
                                 header = line.strip()
                                 outfh.write("%s\n" %header)
-                                for c in range(len(header.split('\t')) -1):
+                                for c in range( len(header.split('\t')) -1 ):
                                     sumcounts.append(0)
                         elif re.match('Total', line):
                             lastline = line.strip()
 
                     if lastline != "":
                         items = lastline.split('\t')
-                        if len(items) - 1!= len(sumcounts):
-                            sys.stderr.write("file %s does not have enough stat fields\n" %(os.path.join(expPath, "stats.txt")))
+                        if len(items) - 1 != len(sumcounts):
+                        #if len(items) - 2 != len(sumcounts):
+                            sys.stderr.write("file %s does not have enough stat fields. %d, %d\n" %( os.path.join(expPath, "stats.txt"), len(items) -1, len(sumcounts) ))
                         else:
                             outfh.write("%s-%s\t%s\n" %(exp, type, '\t'.join(items[1:])))
-                            for j in range(1, len(items)):
-                                sumcounts[j -1] += int( item[j].split()[0] )
+                            #for j in range(1, len(items)):
+                            for j in range(1, len(sumcounts) + 1):
+                                sumcounts[j -1] += int( items[j].split()[0] )
                     f.close()
         
         outfh.write("Total\t%d" %sumcounts[0])
@@ -129,7 +133,8 @@ class CombineResults(Target):
 
 class SolidSingle(Target):
     def __init__(self, options, refpath):
-        Target.__init__(self, time=0.0001)
+        Target.__init__(self)
+        #Target.__init__(self, time=0.0025)
         self.options = options
         self.refpath = refpath
     
@@ -150,7 +155,8 @@ class SolidSingle(Target):
 
 class SolidPaired(Target):
     def __init__(self, options, refpath):
-        Target.__init__(self, time=0.0001)
+        Target.__init__(self)
+        #Target.__init__(self, time = 0.0025)
         self.options = options
         self.refpath = refpath
     
@@ -172,7 +178,8 @@ class SolidPaired(Target):
 
 class Single(Target):
     def __init__(self, options, refpath, machine):
-        Target.__init__(self, time=0.0001)
+        Target.__init__(self)
+        #Target.__init__(self, time = 0.0025)
         self.options = options
         self.refpath = refpath
         self.machine = machine
@@ -194,7 +201,8 @@ class Single(Target):
 
 class Paired(Target):
     def __init__(self, options, refpath, machine, maxInsert):
-        Target.__init__(self, time=0.0001)
+        Target.__init__(self)
+        #Target.__init__(self, time=0.0025)
         self.options = options
         self.refpath = refpath
         self.machine = machine
@@ -220,7 +228,8 @@ class RunBwaPaired(Target):
     """
     """
     def __init__(self, options, outdir, refpath, indir, reads1, reads2, maxInsert):
-        Target.__init__(self, time=18000)
+        #Target.__init__(self, time=120)
+        Target.__init__(self)
         self.outdir = outdir
         self.ref = refpath
         self.options = options
@@ -232,6 +241,7 @@ class RunBwaPaired(Target):
 
     def run(self):
         localTempDir = self.getLocalTempDir()
+        globalTempDir = self.getGlobalTempDir()
         #Copy ref to localTempDir:
         refpath = os.path.join(localTempDir, "ref")
         system("mkdir -p %s" %refpath)
@@ -249,28 +259,21 @@ class RunBwaPaired(Target):
         sai2 = os.path.join(localTempDir, "2.sai")
         system("bwa aln -t %d %s %s > %s" %(self.options.numBwaThreads, reffile, reads2, sai2) )
 
-        samfile = os.path.join(localTempDir, "%s.sam" %self.name)
+        samfile = os.path.join(globalTempDir, "%s.sam" %self.name)
         system("bwa sampe -n 100 -a %d %s %s %s %s %s > %s" % (self.maxInsert, reffile, sai1, sai2, reads1, reads2, samfile))
 
-        #getStats:
-        sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
-        system("cp %s %s" %(statsFile, self.outdir))
-
-        if self.options.getMappedReads:
-            #Filter out readPairs that have both reads unmapped:
-            outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReads(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
-            #Move filtered alignment file back to output directory
-            system("cp %s.bam %s" %(outfilePrefix,self.outdir))
-            
+        self.addChildTarget( RunStats(self.options, self.name, "paired", self.outdir, globalTempDir) )
+        
         #Cleanup:
         system("rm -R %s" %localTempDir)
+        #system("rm -R %s" %globalTempDir)
 
 class RunBwaSingle(Target):
     """
     """
     def __init__(self, options, outdir, refpath, indir, reads):
-        Target.__init__(self, time=18000)
+        #Target.__init__(self, time=120)
+        Target.__init__(self)
         self.outdir = outdir
         self.ref = refpath
         self.options = options
@@ -280,6 +283,7 @@ class RunBwaSingle(Target):
 
     def run(self):
         localTempDir = self.getLocalTempDir()
+        globalTempDir = self.getGlobalTempDir()
         #Copy ref to localTempDir:
         refpath = os.path.join(localTempDir, "ref")
         system("mkdir -p %s" %refpath)
@@ -294,28 +298,21 @@ class RunBwaSingle(Target):
         sai = os.path.join(localTempDir, "%s.sai" %self.name)
         system("bwa aln -t %d %s %s > %s" %(self.options.numBwaThreads, reffile, reads, sai) )
 
-        samfile = os.path.join(localTempDir, "%s.sam" %self.name)
+        samfile = os.path.join(globalTempDir, "%s.sam" %self.name)
         system("bwa samse -n 100 %s %s %s > %s" % ( reffile, sai, reads, samfile))
-       
-        #getStats:
-        sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
-        system("cp %s %s" %(statsFile, self.outdir))
 
-        if self.options.getMappedReads:
-            #Filter out readPairs that have both reads unmapped:
-            outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReadsSingle(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
-            #Move filtered alignment file back to output directory
-            system("cp %s.bam %s" %(outfilePrefix,self.outdir))
-            
+        self.addChildTarget( RunStats(self.options, self.name, "single", self.outdir, globalTempDir) )
+        
         #Cleanup:
         system("rm -R %s" %localTempDir)
+        #system("rm -R %s" %globalTempDir)
 
 class RunSolidSingle(Target):
     """
     """
     def __init__(self, options, outdir, refpath, indir, reads):
-        Target.__init__(self, time=18000)
+        #Target.__init__(self, time=120)
+        Target.__init__(self)
         self.outdir = outdir
         self.ref = refpath
         self.options = options
@@ -325,6 +322,7 @@ class RunSolidSingle(Target):
 
     def run(self):
         localTempDir = self.getLocalTempDir()
+        globalTempDir = self.getGlobalTempDir()
         #Copy ref to localTempDir:
         refpath = os.path.join(localTempDir, "ref")
         system("mkdir -p %s" %refpath)
@@ -335,28 +333,21 @@ class RunSolidSingle(Target):
         reads = os.path.join(localTempDir, self.reads)
         system("cp %s %s" %( os.path.join(self.indir, self.reads), reads ))
 
-        samfile = os.path.join(localTempDir, "%s.sam" %self.name)
+        samfile = os.path.join(globalTempDir, "%s.sam" %self.name)
         system("bowtie -p 3 -C -S -t %s %s %s" %(reffile, reads, samfile)) 
         
-        #getStats:
-        sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
-        system("cp %s %s" %(statsFile, self.outdir))
-
-        if self.options.getMappedReads:
-            #Filter out readPairs that have both reads unmapped:
-            outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReadsSingle(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
-            #Move filtered alignment file back to output directory
-            system("cp %s.bam %s" %(outfilePrefix,self.outdir))
-
+        self.addChildTarget( RunStats(self.options, self.name, "single", self.outdir, globalTempDir) )
+        
         #Cleanup:
         system("rm -R %s" %localTempDir)
+        #system("rm -R %s" %globalTempDir)
 
 class RunSolidPaired(Target):
     """
     """
     def __init__(self, options, outdir, refpath, indir, reads1, reads2):
-        Target.__init__(self, time=18000)
+        #Target.__init__(self, time=120)
+        Target.__init__(self)
         self.outdir = outdir
         self.ref = refpath
         self.options = options
@@ -367,6 +358,7 @@ class RunSolidPaired(Target):
 
     def run(self):
         localTempDir = self.getLocalTempDir()
+        globalTempDir = self.getGlobalTempDir()
         #Copy ref to localTempDir:
         refpath = os.path.join(localTempDir, "ref")
         system("mkdir -p %s" %refpath)
@@ -379,26 +371,47 @@ class RunSolidPaired(Target):
         reads2 = os.path.join(localTempDir, self.reads2)
         system("cp %s %s" %( os.path.join(self.indir, self.reads2), reads2 ))
 
-        samfile = os.path.join(localTempDir, "%s.sam" %self.name)
+        samfile = os.path.join(globalTempDir, "%s.sam" %self.name)
         system("bowtie -p 3 -C -S -t %s -1 %s -2 %s %s" %(reffile, reads1, reads2, samfile)) 
 
+        self.addChildTarget( RunStats(self.options, self.name, "paired", self.outdir, globalTempDir, globalTempDir) )
+        
+        #Cleanup:
+        system("rm -R %s" %localTempDir)
+        #system("rm -R %s" %globalTempDir)
+
+class RunStats(Target):
+    def __init__( self, options, name, libLayout, outdir, globalTempDir ):
+        #Target.__init__(self, time=120)
+        Target.__init__(self)
+        self.name = name
+        self.options = options
+        self.libLayout = libLayout
+        self.outdir = outdir
+        self.indir = globalTempDir
+
+    def run(self):
+        #globalTempDir = self.getGlobalTempDir()
+        globalTempDir = self.indir
+        samfile = os.path.join(globalTempDir, "%s.sam" %self.name)
         #getStats:
-        sortedsamFile, statsFile = stats(localTempDir, self.name, samfile)
+        sortedsamFile, statsFile = stats(globalTempDir, self.name, samfile)
         system("cp %s %s" %(statsFile, self.outdir))
 
         if self.options.getMappedReads:
             #Filter out readPairs that have both reads unmapped:
-            outfilePrefix = os.path.join(localTempDir, "%s" %self.name)
-            filterReads(localTempDir, sortedsamFile, outfilePrefix, self.options.ref)
+            outfilePrefix = os.path.join(globalTempDir, "%s" %self.name)
+            if self.libLayout == "single":
+                filterReadsSingle(globalTempDir, sortedsamFile, outfilePrefix, self.options.ref)
+            else:
+                filterReads(globalTempDir, sortedsamFile, outfilePrefix, self.options.ref)
             #Move filtered alignment file back to output directory
             system("cp %s.bam %s" %(outfilePrefix,self.outdir))
 
-        #Cleanup:
-        system("rm -R %s" %localTempDir)
-
 class MergeResults(Target):
     def __init__(self, indir):
-        Target.__init__(self, time=0.001)
+        #Target.__init__(self, time=0.25)
+        Target.__init__(self)
         self.indir = indir
 
     def run(self):
@@ -410,7 +423,7 @@ class MergeResults(Target):
         outfh = open(outfile, "w")
         outfh.write("Name\tTotal\tFailure\tDuplicates\tMapped\tPairedInSequencing\tRead1\tRead2\tProperlyPaired\tWithItselfAndMateMapped\tSingletons\tMateMappedToDiffChr\tMateMappedToDiffChr(mapQ>=5)\t\
                      UniquelyMapped\tWithItselfAndMateUniquelyMapped\tWithItselftAndMateUniquelyMappedAndProperlyPaired\tUniquelyMappedMateNotUniquelyMapped\tWithItselfAndMateNotUniquelyMapped\n")
-        totalcounts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        totalcounts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for file in files:
             counts  = []
             f = open(file, 'r')
@@ -437,7 +450,7 @@ class MergeResults(Target):
 
 class MergeBams(Target):
     def __init__(self, indir):
-        Target.__init__(self, time=0.001)
+        Target.__init__(self)
         self.indir = indir
 
     def run(self):
@@ -474,13 +487,13 @@ def filterReads(indir, samfile, outfilePrefix, ref):
     system("cp %s %s" %(ref, reffile))
 
     mapMap = os.path.join(indir, "mm.bam")
-    system("samtools view -T %s -F12 -b -o %s %s" %(reffile, mapMap, samfile) )
+    system("samtools view -S -T %s -F12 -b -o %s %s" %(reffile, mapMap, samfile) )
     
     mapUnmap = os.path.join(indir, "mu.bam")
-    system("samtools view -T %s -f8 -F4 -b -o %s %s" %(reffile, mapUnmap, samfile) )
+    system("samtools view -S -T %s -f8 -F4 -b -o %s %s" %(reffile, mapUnmap, samfile) )
 
     unmapMap = os.path.join(indir, "um.bam")
-    system("samtools view -T %s -f4 -F8 -b -o %s %s" %(reffile, unmapMap, samfile) )
+    system("samtools view -S -T %s -f4 -F8 -b -o %s %s" %(reffile, unmapMap, samfile) )
 
     #Merge to outfile:
     mergeFile = os.path.join(indir, "merge.bam")
@@ -494,7 +507,7 @@ def filterReadsSingle(indir, samfile, outfilePrefix, ref):
     system("cp %s %s" %(ref, reffile))
 
     map = os.path.join(indir, "map.bam")
-    system("samtools view -T %s -F4 -b -o %s %s" %(reffile, map, samfile))
+    system("samtools view -S -T %s -F4 -b -o %s %s" %(reffile, map, samfile))
     system("samtools sort -n %s %s" %(map, outfilePrefix))
     return
 
@@ -538,7 +551,9 @@ def getStats(file, outfile):
               "uniquely_mapped_mate_not_uniquely_mapped":0,\
               "with_itself_and_mate_not_uniquely_mapped":0}
 
-    for line in f.readlines():
+    #for line in f.readlines():
+    #while (line = f.readline()) != '':
+    for line in f:
         pair += 1
         line = line.strip()
         if len(line) == 0 or line[0] == '@':
@@ -579,13 +594,17 @@ def getStats(file, outfile):
     outfh.close()
 
 def stats(indir, name, samfile):
+    #Convert sam to bam for flagstat
     bamfile = os.path.join(indir, "%s.bam" %name)
     system("samtools view -b -o %s -S %s" %(bamfile, samfile))
+    #Sort bamfile by name
     sortPrefix = os.path.join(indir, "%s-sorted" %name)
     system("samtools sort -n %s %s" %( bamfile, sortPrefix))
     
     flagstatFile = os.path.join(indir, "%s-flagstat.txt" %name)
     system("samtools flagstat %s.bam > %s" %(sortPrefix, flagstatFile))
+
+    #Convert sorted bam back to sam (sorted sam) to parse and find uniquely-mapped statistics
     system("samtools view %s.bam -o %s.sam" %(sortPrefix, sortPrefix))
     uniqueStatFile = os.path.join(indir, "%s-ustat.txt" %name)
     getStats("%s.sam" %sortPrefix, uniqueStatFile)
@@ -593,8 +612,8 @@ def stats(indir, name, samfile):
     statsFile = os.path.join(indir, "%s-stats.txt" %name)
     #MergeStats:
     system("cat %s %s > %s" %(flagstatFile, uniqueStatFile, statsFile))
+    #Return the sorted samfile, and statsfile
     return "%s.sam"%sortPrefix, statsFile
-
 
 def initOptions( parser ):
     #parser.add_option('-bwape', dest='bwape', help='Comma separated list of input bam/fastq read-files: reads1.bam,reads2.bam,otherReads1.bam,otherReads2.bam. Reads2 must follow reads1 file immediately in the list.')
