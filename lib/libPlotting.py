@@ -138,7 +138,10 @@ def getColors0():
                "#4A766E", "#48D1CC", #
                "#DAA520", "#DBDB70", #gold
                "#302B54", "#5959AB", #purple - blueish
-               "#F6A8B6", "#F6CCDA"] #pink
+               "#F6A8B6", "#F6CCDA", #pink
+               "#7B68EE", "#6600FF",
+               "#AA6600", "#B5A642",
+               "#BC8F8F", "#C76114"] 
 
     return colors
 
@@ -149,6 +152,7 @@ def getColors1():
               "#F781BF", #ssto
               "#C2E699", "#78C679", "#238443", #NA12878, NA12891, NA12892
               "#FED98E", "#FE9929", "#CC4C02", #NA19239, NA19238, NA19240
+              "#7B68EE", "#6600FF", "#AA6600", "#B5A642", "#BC8F8F", "#C76114",
               "#999999"] #panTro
    
     return colors
