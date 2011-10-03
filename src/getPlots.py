@@ -55,8 +55,8 @@ class Setup(Target):
              if 'snp' in self.analyses:
                  pattern = "snpStats_.+\.xml"
                  self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
-                 #pattern = "snpStatsIntersection_.+\.xml"
-                 #self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
+                 pattern = "snpStatsIntersection_.+\.xml"
+                 self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
              if 'indeltab' in self.analyses:
