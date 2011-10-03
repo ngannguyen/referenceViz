@@ -24,12 +24,12 @@ def getSample(samples, name):
             return s
     return None
 
-def getLeaves( allsamples ):
+def getLeaves( allsamples, filteredSamples ):
     #Return only samples that are leaves in the tree
     samples = []
     for sample in allsamples:
         name = sample.attrib[ 'sampleName' ]
-        if name != "ROOT" and name != "":
+        if name != "ROOT" and name != "" and name not in filteredSamples:
         #if name == 'apd':
             samples.append(sample)
     return samples
@@ -191,7 +191,7 @@ def drawPlots( options, samples ):
     options.out = os.path.join( options.outdir, 'indelDist_' + refname )
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     
-    samplesPerPlot = 8
+    samplesPerPlot = 10
     axesList = setAxes( fig, len(samples), samplesPerPlot )
 
     lines = drawData( axesList, samples, samplesPerPlot, options )
@@ -213,7 +213,9 @@ def initOptions( parser ):
     #parser.add_option('--ycutoff', dest='ycutoff', default=0.5, type='float',
     #                   help='Only points with y values from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
-    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2", help="Samples order")
+    #parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2", help="Samples order")
+    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
     parser.add_option('--xlog', dest='xlogscale', default="true")
     parser.add_option('--ylog', dest='ylogscale', default="true")
 
@@ -226,6 +228,10 @@ def checkOptions( args, options, parser ):
             parser.error('File %s does not exit\n' % file)
         options.files.append( os.path.abspath( file ) )
     options.samplesOrder = options.samplesOrder.split(',')
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
     #options.keys = options.keys.split(',')
 
 def main():
@@ -247,7 +253,7 @@ def main():
         root = xmltree.getroot()
         allsamples = root.findall( 'statsForSample' )
 
-        samples = getLeaves( allsamples )
+        samples = getLeaves( allsamples, options.filteredSamples )
         statsListF.append( samples )
 
     for samples in statsListF:

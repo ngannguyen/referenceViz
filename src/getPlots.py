@@ -34,6 +34,8 @@ class Setup(Target):
          experiments = os.listdir(self.indir)
          system("mkdir -p %s" %self.outdir)
          for exp in experiments:
+             filteredSamples = getFilteredSamples(exp)
+
              indir = os.path.join(self.indir, exp)
              if not os.path.isdir(indir):
                  continue
@@ -42,37 +44,38 @@ class Setup(Target):
              system("mkdir -p %s" %outdir)
              if 'contiguity' in self.analyses:
                  pattern1 = "contiguityStats_.+\.xml"
-                 self.addChildTarget( Contiguity(indir, outdir, pattern1) )
-                 self.addChildTarget( Contiguity(indir, outdir, pattern1, includeCoverage=True) )
+                 self.addChildTarget( Contiguity(indir, outdir, pattern1, filteredSamples) )
+                 self.addChildTarget( Contiguity(indir, outdir, pattern1, filteredSamples, includeCoverage=True) )
                  pattern2 = "contiguityStatsNoDuplication_.+\.xml"
-                 self.addChildTarget( Contiguity(indir, outdir, pattern2, includeCoverage=True) )
+                 self.addChildTarget( Contiguity(indir, outdir, pattern2, filteredSamples, includeCoverage=True) )
              if 'coverage' in self.analyses:
-                 self.addChildTarget( Coverage(indir, outdir) )
+                 self.addChildTarget( Coverage(indir, outdir, filteredSamples) )
              if 'n50' in self.analyses:
-                 self.addChildTarget( N50(indir, outdir) )
+                 self.addChildTarget( N50(indir, outdir, filteredSamples) )
              if 'snp' in self.analyses:
                  pattern = "snpStats_.+\.xml"
-                 self.addChildTarget( Snp(indir, outdir, pattern) )
-                 pattern = "snpStatsIntersection_.+\.xml"
-                 self.addChildTarget( Snp(indir, outdir, pattern) )
+                 self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
+                 #pattern = "snpStatsIntersection_.+\.xml"
+                 #self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
              if 'indeldist' in self.analyses:
-                 self.addChildTarget( IndelDist(indir, outdir) )
+                 self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
              if 'indeltab' in self.analyses:
-                 self.addChildTarget( IndelTab(indir, outdir, self.pdflatex) )
+                 self.addChildTarget( IndelTab(indir, outdir, self.pdflatex, filteredSamples) )
              if 'cnv' in self.analyses:
-                 self.addChildTarget( Cnv(indir, outdir) )
+                 self.addChildTarget( Cnv(indir, outdir, filteredSamples) )
         #Cleanup:
         #self.setFollowOnTarget( Cleanup(self.output) )
 
 class Contiguity(Target):
     """
     """
-    def __init__(self, indir, outdir, pattern, includeCoverage=False):
+    def __init__(self, indir, outdir, pattern, filteredSamples, includeCoverage=False):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
         self.pattern = pattern
         self.includeCoverage = includeCoverage
+        self.filteredSamples = filteredSamples
 
     def run(self):
         #pattern = "contiguityStats_.+\.xml"
@@ -81,29 +84,31 @@ class Contiguity(Target):
        
         if len(files) >= 1:
             if self.includeCoverage:
-                system("contiguityPlot.py %s --outdir %s --includeCoverage" %(filesStr, self.outdir) )
+                system("contiguityPlot.py %s --outdir %s --includeCoverage --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples) )
             else:
-                system("contiguityPlot.py %s --outdir %s" %(filesStr, self.outdir) )
+                system("contiguityPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples) )
 
 
 class Coverage(Target):
     """
     """
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, filteredSamples):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
+        self.filteredSamples = filteredSamples
 
     def run(self):
         infile = os.path.join(self.indir, "coverageStats.xml")
         if os.path.exists( infile ):
-            system("coveragePlot.py %s --outdir %s" %(infile, self.outdir))
+            system("coveragePlot.py %s --outdir %s --filteredSamples %s" %(infile, self.outdir, self.filteredSamples))
 
 class N50(Target):
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, filteredSamples):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
+        self.filteredSamples = filteredSamples
 
     def run(self):
         pattern = "pathStats_.+\.xml"
@@ -113,14 +118,15 @@ class N50(Target):
         keys = "sequenceN50,blockN50,contigPathN50,scaffoldPathN50"
         #keys = "blockN50,contigPathN50,scaffoldPathN50"
         if len(files) >=1:
-            system("n50Plot.py %s --sortkey %s --keys %s --outdir %s" %(filesStr, sortkey, keys, self.outdir))
+            system("n50Plot.py %s --sortkey %s --keys %s --outdir %s --filteredSamples %s" %(filesStr, sortkey, keys, self.outdir, self.filteredSamples))
 
 class Snp(Target):
-    def __init__(self, indir, outdir, pattern):
+    def __init__(self, indir, outdir, pattern, filteredSamples):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
         self.pattern = pattern
+        self.filteredSamples = filteredSamples
 
     def run(self):
         #pattern = "snpStats_.+\.xml"
@@ -128,13 +134,14 @@ class Snp(Target):
         files = getfiles(self.pattern, self.indir)
         filesStr = " ".join(files)
         if len(files) >=1:
-            system("snpPlot.py %s --outdir %s" %(filesStr, self.outdir))
+            system("snpPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
 
 class IndelDist(Target):
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, filteredSamples):
         Target.__init__(self, time = 0.25)
         self.indir = indir
         self.outdir = outdir
+        self.filteredSamples = filteredSamples
     
     def run(self):
         pattern = "pathStats_.+\.xml"
@@ -142,14 +149,15 @@ class IndelDist(Target):
         filesStr = " ".join(files)
 
         if len(files) >=1:
-            system("indelDistPlot.py %s --outdir %s" %(filesStr, self.outdir))
+            system("indelDistPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
 
 class IndelTab(Target):
-    def __init__(self, indir, outdir, pdflatex):
+    def __init__(self, indir, outdir, pdflatex, filteredSamples):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
         self.pdflatex = pdflatex
+        self.filteredSamples = filteredSamples
 
     def run(self):
         pattern = "pathStats_.+\.xml"
@@ -160,7 +168,7 @@ class IndelTab(Target):
         filesStr += " " + " ".join(files)
 
         if len(files) >=1:
-            system("indelTable.py %s --outdir %s" %(filesStr, self.outdir))
+            system("indelTable.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
             #Get make pdf for tex files:
             if self.pdflatex:
                 prefix = "indelStats_"
@@ -173,15 +181,16 @@ class IndelTab(Target):
                     #outfile = os.path.join( self.outdir, prefix + m.group(1) + ".tex" )
 
 class Cnv(Target):
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, filteredSamples):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
+        self.filteredSamples = filteredSamples
 
     def run(self):
         infile = os.path.join(self.indir, "copyNumberStats.xml")
         if os.path.exists( infile ):
-            system("cnvPlot.py %s --outdir %s" %(infile, self.outdir))
+            system("cnvPlot.py %s --outdir %s --filteredSamples %s" %(infile, self.outdir, self.filteredSamples))
 
 def getfiles(pattern, indir):
     files = []
@@ -195,6 +204,14 @@ def getfiles(pattern, indir):
         if re.search( pattern, file ):
             files.append( os.path.join( indir, file ) )
     return files
+             
+def getFilteredSamples(exp):
+    #filtered sample:
+    filteredSamples = ''
+    items = exp.split('_')
+    if len(items) >=2:
+        filteredSamples = items[ len(items) -1 ]
+    return filteredSamples
 
 def initOptions( parser ):
     parser.add_option('-i', '--indir', dest='indir', help='Required. Location of all the experiments') 

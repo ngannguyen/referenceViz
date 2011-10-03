@@ -35,7 +35,7 @@ def readfiles( options ):
         root = xmltree.getroot()
         for s in root.findall( 'statsForSample' ):
             name = s.attrib[ 'sampleName' ]
-            if name != 'ROOT' and name != '':
+            if name != 'ROOT' and name != '' and name not in options.filteredSamples:
                 samples.append( Sample( s ) )
         statsList.append( samples )
     return statsList
@@ -43,6 +43,7 @@ def readfiles( options ):
 def initOptions( parser ):
     parser.add_option( '--outdir', dest='outdir', default='.', help='Output directory' ) 
     parser.add_option( '--numOutliners', dest='numOutliners', default=1, help='Number of outliners' ) 
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
     if len( args ) < 2:
@@ -52,6 +53,10 @@ def checkOptions( args, options, parser ):
         if not os.path.exists(f):
             parser.error( 'File %s does not exist.\n'  % f )
         options.files.append( f )
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
 
 def setAxes(fig, range1, range2):
     axleft = 0.12
@@ -96,7 +101,8 @@ def drawSnpPlot( options, samples1, samples2 ):
 
     for i in range(len(xticklabels)):
         if xticklabels[i] == refname2:
-            xticklabels[i] = "%s/%s" %(refname2,refname1)
+            xticklabels[i] = "ref/hg19"
+            #xticklabels[i] = "%s/%s" %(refname2,refname1)
 
     num = options.numOutliners
     minOutlier = min( [min(y2data[0:num]), min(y1data[0:num])] ) - 0.001 
@@ -135,13 +141,15 @@ def drawSnpPlot( options, samples1, samples2 ):
     
     #ytickpositions = ax.yaxis.get_majorticklocs()
     #ytickpositions = [ ytickpositions[i] for i in range(0,len(ytickpositions),2) ]
+    #Make sure the y ticks of the top plot (the outlier plot) is the same with the other plot:
     step = 0.001
     ytickpositions = []
-    ytickpos = 0.013
+    #ytickpos = 0.013
+    ytickpos = 0
     while ytickpos < maxOutlier:
-        ytickpositions.append(ytickpos)
+        if ytickpos >= minOutlier:
+            ytickpositions.append(ytickpos)
         ytickpos += step
-
     ax.set_yticks( ytickpositions )
         
     #ax.xaxis.set_major_locator( NullLocator() )
@@ -164,13 +172,16 @@ def drawSnpPlot( options, samples1, samples2 ):
 
     ax2.set_xticks( range( 0, len(xticklabels) ) )
     ax2.set_xticklabels( xticklabels )
+    #Make sure the x ticks of the top plot is the same with the other plot:
+    ax.set_xticks( range(0, len(xticklabels)) )
+
     for label in ax2.xaxis.get_ticklabels():
-        label.set_rotation( 45 )
+        label.set_rotation( 90 )
    
-    #ax.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
-    #ax.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
-    #ax2.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
-    #ax2.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    ax.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    ax.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    ax2.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    ax2.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
 
     ax2.set_xlabel( 'Samples' )
     ax2.set_ylabel( 'Snps per site' )

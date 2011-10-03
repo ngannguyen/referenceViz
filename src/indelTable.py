@@ -146,7 +146,7 @@ def readfile( file ):
         exit( 1 )
     return ET.parse( file )
     
-def readfiles( files ):
+def readfiles( files, filteredSamples ):
     samplesList = []
     for f in files:
         tree = readfile( f )
@@ -154,7 +154,7 @@ def readfiles( files ):
         samples = []
         for sample in root.findall( 'statsForSample' ):
             name = sample.attrib[ 'sampleName' ]
-            if name != "ROOT" and name != "":
+            if name != "ROOT" and name != "" and name not in filteredSamples:
                 samples.append( sample )
         samplesList.append( samples )
 
@@ -164,12 +164,18 @@ def main():
     usage = "Usage %prog [options] pathStats*.xml1 pathStats*.xml2 snpStats*.xml1 snpStats*.xml2"
     parser = OptionParser( usage = usage )
     parser.add_option('--outdir', dest='outdir', default='.', help="Output directory")
-    parser.add_option('--samples', dest='samples', default='apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2', help="Comma separated list of samples in the desired order")
+    parser.add_option('--samples', dest='samples', default='apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3', help="Comma separated list of samples in the desired order")
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
+    #parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
     options, args = parser.parse_args()
     
     if len(args) < 4:
         parser.error("Please specify two pathStatsXml files and two snpStats Files\n")
-    samplesList = readfiles( args ) #xml trees
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
+    samplesList = readfiles( args, options.filteredSamples ) #xml trees
     sampleNames = options.samples.split(',')
     makeLatexTab( samplesList, options.outdir, sampleNames )
 

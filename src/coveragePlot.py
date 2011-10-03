@@ -28,6 +28,9 @@ class Sample(list):
         for i in range( len(items) ):
             items[i] = int( items[i] )
             totalBases += items[i]
+        if totalBases == 0:
+            sys.stderr.write("Total bases is 0 for sample %s. Please check.\n" %self.name)
+            sys.exit(1)
         self.baseCoverages = items
 
         self.relativeBaseCoverages = []
@@ -236,7 +239,7 @@ def readfiles( options ):
         root = xmltree.getroot()
         for sample in root.findall( 'statsForSample' ):
             name = sample.attrib[ 'sampleName' ]
-            if name != '' and name != 'ROOT':
+            if name != '' and name != 'ROOT' and name not in options.filteredSamples:
                 stats.append( Sample( sample ) )
         if len(stats) > 0:
             stats.setRefName( stats[0].referenceName )
@@ -249,6 +252,7 @@ def initOptions( parser ):
     parser.add_option('--title', dest='title', default='Coverage statistics', help='Based title of the plots, default=%default')
     parser.add_option('--ycutoff', dest='ycutoff', default=0.5, type='float')
     parser.add_option('--outdir', dest='outdir', default='.')
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
     if len(args) < 1:
@@ -259,6 +263,10 @@ def checkOptions( args, options, parser ):
             parser.error( '%s does not exist\n' %f )
         else:
             options.files.append( os.path.abspath( f ) )
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
 
 def main():
     usage = ( 'usage: %prog [options] file1.xml file2.xml\n\n'

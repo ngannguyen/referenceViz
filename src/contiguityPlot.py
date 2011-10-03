@@ -358,7 +358,7 @@ def readfiles( options ):
         root = xmltree.getroot()
         for sample in root.findall( 'statsForSample' ):
             name = sample.attrib[ 'sampleName' ]
-            if name != '' and name != 'ROOT':
+            if name != '' and name != 'ROOT' and name not in options.filteredSamples:
                 s = Sample( name, sample.attrib[ 'referenceName' ] )
                 s.setBuckets( sample )
                 stats.append( s )
@@ -379,7 +379,8 @@ def initOptions( parser ):
                        help='Only points with y-value from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     parser.add_option('--includeCoverage', dest='includeCov', action="store_true", default=False, help='If specified, will include coverage info in the plots')
-    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2", help="Samples order")
+    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
     options.files = []
@@ -398,6 +399,11 @@ def checkOptions( args, options, parser ):
     if options.legendElements:
         options.legendElements = options.legendElements.split(',')
     options.samplesOrder = options.samplesOrder.split(',')
+    
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
 
 def main():
     usage = ( 'usage: %prog [options] file1.xml file2.xml\n\n'

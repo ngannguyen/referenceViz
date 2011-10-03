@@ -163,14 +163,14 @@ def drawCnvPlot( sample, options ):
     setAxisLimits( axDict, minCn, maxCn )
     libplot.writeImage( fig, pdf, options )
 
-def readfile( file ):
+def readfile( file, filteredSamples ):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
     allsamples = root.findall( 'statsForSample' )
     samples = []
     for s in allsamples:
         name = s.attrib[ 'sampleName' ]
-        if name != "ROOT" and name != "":
+        if name != "ROOT" and name != "" and name not in filteredSamples:
             samples.append( s )
     return samples
 
@@ -179,9 +179,14 @@ def checkOptions( args, options, parser ):
         parser.error( "No input file provided!\n" )
     if not os.path.exists( args[0] ):
         parser.error( "Input file %s does not exist.\n"  %args[0] )
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
 
 def initOptions( parser ):
     parser.add_option( '--outdir', dest='outdir', default='.', help='Output directory' )
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def main():
     usage = ('Usage: %prog [options] inputCopyNumberStats.xml')
@@ -193,7 +198,7 @@ def main():
     libplot.checkOptions( options, parser )
 
     #Read in input file:
-    samples = readfile( args[0] )
+    samples = readfile( args[0], options.filteredSamples )
     for sample in samples:
         drawCnvPlot( sample, options )
 

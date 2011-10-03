@@ -123,12 +123,12 @@ def drawCompareN50data( axes, xsamples, ysamples, options ):
 
     return lines, lineNames, maxval, minval
 
-def getLeaves( allsamples ):
+def getLeaves( allsamples, filteredSamples ):
     #Return only samples that are leaves in the tree
     samples = []
     for sample in allsamples:
         name = sample.attrib[ 'sampleName' ]
-        if name != "ROOT" and name != "":
+        if name != "ROOT" and name != "" and name not in filteredSamples:
             samples.append(sample)
     return samples
 
@@ -232,6 +232,7 @@ def initOptions( parser ):
                        help='comma separted list of which N50 statistics to be displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     parser.add_option('--abs', dest='logscale', action="store_false", default=True, help="If specified, the axes have the absolute scale, instead of log 10 as default")
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
     if len(args) < 1:
@@ -242,6 +243,10 @@ def checkOptions( args, options, parser ):
             parser.error('File %s does not exit\n' % file)
         options.files.append( os.path.abspath( file ) )
     options.keys = options.keys.split(',')
+    if options.filteredSamples:
+        options.filteredSamples = options.filteredSamples.split('-')
+    else:
+        options.filteredSamples = []
 
 def main():
     usage = ('usage: %prog [options] file1.xml file2.xml\n\n'
@@ -262,7 +267,7 @@ def main():
         root = xmltree.getroot()
         allsamples = root.findall( 'statsForSample' )
 
-        samples = getLeaves( allsamples )
+        samples = getLeaves( allsamples, options.filteredSamples )
         statsListF.append( samples )
 
     for samples in statsListF:
