@@ -76,7 +76,8 @@ def drawData( axes, stats, isAbs ):
         ydataList.append(ydata)
 
     #colors = libplot.getColors2( len(stats) )
-    colors = libplot.getColors0()
+    colors = libplot.getColors3()
+    #colors = libplot.getColors0()
     colorindex = 0
     #for i in range( len(stats) -1, -1, -1 ):
     x = arange( len(stats) ) #x axis represents the samples

@@ -156,6 +156,43 @@ def getColors1():
               "#999999"] #panTro
    
     return colors
+#def getColors3(): #sequencial
+#    #"#045A8D", "#2B8CBE", "#74A9CF", "#BDC9E1", 
+#    colors = ["#08519C", "#3182BD", "#6BAED6", "#BDD7E7", #blue
+#              "#54278F", "#756BB1", "#9E9AC8", "#CBC9E2", #purple
+#              "#006D2C", "#2CA25F", "#66C2A4", "#B2E2E2", #green
+#              "#A63603", "#E6550D", "#FD8D3C", "#FDBE85", #orange
+#              "#980043", "#DD1C77", "#DF65B0", "#D7B5D8"] #pink
+#    return colors
+
+def getColors3(): #sequencial
+    #"#045A8D", "#2B8CBE", "#74A9CF", "#BDC9E1", 
+    colors = [
+              "#08519C", #blue4 #4 is the darkest
+              "#6BAED6", #blue2
+              "#A63603", #orange4
+              "#FD8D3C", #orange2
+              "#006D2C", #green4
+              "#66C2A4", #green2
+              "#54278F", #purple4
+              "#9E9AC8", #purple2
+              "#980043", #pink4
+              "#DF65B0", #pink2
+              "#3182BD", #blue3
+              "#BDD7E7", #blue1
+              "#756BB1", #purple3
+              "#CBC9E2", #purple1
+              "#2CA25F", #green3
+              "#B2E2E2", #green1
+              "#E6550D", #orange3
+              "#FDBE85", #orange1
+              "#A50F15",
+              "#FB6A4A",#red
+              "#DD1C77", #pink3
+              "#D7B5D8", #pink1
+              "#E41A1C" #red
+              ]
+    return colors
 
 def setAxes( fig ):                                                                     
     return fig.add_axes( [0.12, 0.1, 0.83, 0.85] )                                      

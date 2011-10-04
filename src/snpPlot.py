@@ -89,7 +89,7 @@ def drawSnpPlot( options, samples1, samples2 ):
     y2data = []
     for name in xticklabels:
         for s in samples2:
-            if s.name == name or s.name == refname1:
+            if s.name == name or (name == refname2 and s.name == refname1):
                 y2data.append(s.errPerSite)
                 break
     #print y1data
@@ -123,6 +123,10 @@ def drawSnpPlot( options, samples1, samples2 ):
 
     ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
     ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    print "Y1DATA: \n"
+    print y1data
+    print "Y2DATA:\n"
+    print y2data
   
     #Legend
     fontP = FontProperties()
