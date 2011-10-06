@@ -29,6 +29,7 @@ class Setup(Target):
         self.outdir = options.outdir
         self.analyses = options.analyses
         self.pdflatex = options.pdflatex
+        self.dbsnp = options.dbsnp
 
     def run(self):
          experiments = os.listdir(self.indir)
@@ -53,10 +54,14 @@ class Setup(Target):
              if 'n50' in self.analyses:
                  self.addChildTarget( N50(indir, outdir, filteredSamples) )
              if 'snp' in self.analyses:
+                 #Snp plots
                  pattern = "snpStats_.+\.xml"
                  self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
                  pattern = "snpStatsIntersection_.+\.xml"
                  self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
+                 #Verify with dbSnp:
+                 pattern = "snpStats.+hg19.*\.xml"
+                 self.addChildTarget( SnpCheck(indir, outdir, pattern, filteredSamples, self.dbsnp) )
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
              if 'indeltab' in self.analyses:
@@ -136,6 +141,22 @@ class Snp(Target):
         if len(files) >=1:
             system("snpPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
 
+class SnpCheck(Target):
+    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp):
+        Target.__init__(self, time=0.25)
+        self.indir = indir
+        self.outdir = outdir
+        self.pattern = pattern
+        self.filteredSamples = filteredSamples
+        self.dbsnp = dbsnp
+
+    def run(self):
+        files = getfiles(self.pattern, self.indir)
+        for file in files:
+            name = os.path.basename(file).lstrip('snpStats_').rstrip('.xml')
+            outfile = os.path.join(self.outdir, "dbsnpCheck_%s.txt" %name)
+            system("snpStats.py %s %s > %s" %(file, self.dbsnp, outfile))
+
 class IndelDist(Target):
     def __init__(self, indir, outdir, filteredSamples):
         Target.__init__(self, time = 0.25)
@@ -163,7 +184,7 @@ class IndelTab(Target):
         pattern = "pathStats_.+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
-        pattern = "snpStats_.+\.xml"
+        pattern = "snpStats_[^_]+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr += " " + " ".join(files)
 
@@ -217,6 +238,7 @@ def initOptions( parser ):
     parser.add_option('-i', '--indir', dest='indir', help='Required. Location of all the experiments') 
     parser.add_option('-o', '--outdir', dest='outdir', help='Required. Output directory')
     parser.add_option('-l', '--pdflatex', dest='pdflatex', action="store_true", default=False, help='If specified, convert tex files to pdf using "pdflatex" (This must be installed)')
+    parser.add_option('--dbsnp', dest='dbsnp', help='dbSnps file') 
     parser.add_option('-a', '--analyses', dest='analyses', default='all', \
                       help='Comma separated string of different analyses to perform.\n\
                       Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,all].\n\
@@ -227,6 +249,8 @@ def checkOptions( args, options, parser ):
         parser.error('Location of input experiments is required and not given.\n')
     if not options.outdir:
         parser.error('Output direcotry is required but not given.\n')
+    if not options.dbsnp or not os.path.exists(options.dbsnp):
+        parser.error('Dbsnp file does not exist\n')
     if re.search('all', options.analyses):
         options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv'
     options.analyses = (options.analyses).split(',')

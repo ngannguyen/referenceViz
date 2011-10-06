@@ -35,7 +35,7 @@ def readfiles( options ):
         root = xmltree.getroot()
         for s in root.findall( 'statsForSample' ):
             name = s.attrib[ 'sampleName' ]
-            if name != 'ROOT' and name != '' and name not in options.filteredSamples:
+            if name != 'aggregate' and name != 'ROOT' and name != '' and name not in options.filteredSamples:
                 samples.append( Sample( s ) )
         statsList.append( samples )
     return statsList
@@ -123,10 +123,6 @@ def drawSnpPlot( options, samples1, samples2 ):
 
     ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
     ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
-    print "Y1DATA: \n"
-    print y1data
-    print "Y2DATA:\n"
-    print y2data
   
     #Legend
     fontP = FontProperties()
