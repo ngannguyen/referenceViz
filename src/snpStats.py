@@ -15,7 +15,7 @@ class SnpSite():
         items = line.strip().split()
         self.name = items[0]
         self.start = int( items[1] )
-        self.allele = items[2]
+        self.allele = items[2].lower()
         self.ref = items[3]
         self.refstart = int( items[4] ) 
         refitems = self.ref.split('.')
@@ -34,7 +34,7 @@ class SnpSite():
                 self.refstart = self.refstart + offset
             else:
                 self.refstart = self.refstart + reflen - (offset + fraglen)
-        self.refallele = items[5]
+        self.refallele = items[5].lower()
         self.sampleName = sampleName
         self.referenceName = referenceName
     
@@ -78,9 +78,24 @@ class Snp():
         self.locType = items[15]
         self.exceptions = items[17]
         self.alleleFreqCount = int(items[20])
-        self.alleles = items[21].rstrip(',')
-        self.alleleFreqs = items[23].rstrip(',')
-        #self.alleles = items[21].rstrip(',').split(',')
+        #self.alleles = items[21].rstrip(',')
+        #self.alleleFreqs = items[23].rstrip(',')
+        self.alleles = items[21].lower().rstrip(',').split(',')
+        #for allele in self.alleles:
+        #    if len(allele) < self.chromEnd - self.chromStart:
+        #        sys.stderr.write("dbsnp line '%s', allele length is different from chromEnd - chromStart\n" %(line))
+        #        sys.exit(1)
+        if self.strand == '-':
+            d = {'a':'t', 't':'a', 'c':'g', 'g':'c'}
+            newalleles = []
+            for a in self.alleles:
+                if a in d:
+                    newalleles.append( d[a] )
+                else:
+                    newalleles.append( a )
+            self.alleles = newalleles
+                
+
         #self.alleleFreqs = [ float(f) for f in items[23].rstrip(',').split(',') ]
 
     def __cmp__(self, other):
@@ -119,6 +134,7 @@ def readDbSnps(file):
         if re.search('chromStart', line):
             continue
         snp = Snp(line)
+        #if snp.type == 'single' or snp.type == 'mnp':
         if snp.type == 'single':
             snps.append( snp )
 
@@ -165,16 +181,22 @@ def getStats(dbsnps, refsnps, samples):
             #print "CURRENT INDEX: %d" %currindex
             for i in xrange(currindex,totalSnps):
                 dbs = dbsnps[i].chromStart
+                dbe = dbsnps[i].chromEnd
+
                 currindex = i
-                if s.refstart > dbs:
+                if dbe <= s.refstart :
                     #print "\tnot there yet: %d < %d" %(s.refstart, dbs)
                     continue
-                elif s.refstart == dbs:
+                elif dbs <= s.refstart : # < dbe
+                    #dballeles = [ allele[s.refstart - dbs] for allele in dbsnps[i].alleles ]
+                    #dballeles = dbsnps[i].alleles
+                    #if s.allele not in dballeles or s.refallele not in dballeles:
+                    #    sys.stderr.write("%d, %d. Alleles %s, %s not in dbAlleles: %s\n" %(s.refstart, dbs, s.allele, s.refallele, ','.join(dbsnps[i].alleles)))
                     #print "\tfound it! %d, %d" %(s.refstart, dbs)
                     tp +=1
                     #flag = True
                     break
-                else:
+                else: #s.refstart < dbs
                     #print "\tGone too far, stop: %d, %d" %(s.refstart, dbs)
                     break
             #if flag == False:
@@ -182,8 +204,10 @@ def getStats(dbsnps, refsnps, samples):
 
         fp = refTotal - tp
         fn = totalSnps - tp
-
-        sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\n" %(sample, refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
+        if refTotal > 0:
+            sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\n" %(sample, refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
+        else:
+            sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\n" %(sample, refTotal, tp, 0.00, fp, 0.00))
 
 def initOptions( parser ):
     #parser.add_option('-o', '--outfile', dest='outfile', default='', help='Output file. Default is stdout' )
