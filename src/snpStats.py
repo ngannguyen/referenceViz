@@ -4,7 +4,7 @@
 Compare Snps between each sample and the reference with the set of Snps in dbSnps
 """
 
-import os, sys
+import os, sys, re
 #import sqlite3
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
@@ -116,6 +116,8 @@ def readDbSnps(file):
     f = open(file, 'r')
     snps = []
     for line in f:
+        if re.search('chromStart', line):
+            continue
         snp = Snp(line)
         if snp.type == 'single':
             snps.append( snp )
