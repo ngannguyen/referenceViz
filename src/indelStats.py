@@ -22,15 +22,19 @@ class PgSnp():
         self.name = items[3]
         self.alleles = [ a.lower() for a in self.name.split('/') ]
         self.sample = items[7]
-        
-        #Check if it's snp or not:
-        self.isSnp = False
-        for o in self.alleles:
-            if len(o) == 1 and o != '-':
-                self.isSnp = True
-                break
-        
-        #self.alleleCount = int(items[4])
+        self.alleleCount = int(items[4])
+        if self.alleleCount == 0:
+            self.alleleSize = 0
+        else:
+            self.alleleSize = len(self.alleles[0])
+        self.isIndel = ''
+        if re.search('-', self.name):
+            if self.chromEnd == self.chromStart: #insertion
+                self.isIndel = 'insertion'
+            else:
+                self.isIndel = 'deletion'
+
+
         #self.alleleFreq = [ int(f) for f in items[5].split(',') ]
         #if len(self.alleleFreq) != self.alleleCount:
         #    sys.stderr.write("")
@@ -54,16 +58,31 @@ class PgSnp():
 class SnpSite():
     def __init__(self, line, sampleName, referenceName):
         items = line.strip().split()
-        self.name = items[0]
-        self.start = int( items[1] )
-        self.allele = items[2].lower()
-        self.ref = items[3]
-        self.refstart = int( items[4] ) 
+        if len(items) < 16:
+            sys.stderr.write('cactus indel record does not have enough fields\n')
+            sys.exit(1)
+        self.name = items[9]
+        self.start = int( items[11] )
+        self.length = int(items[13])
+        self.strand = items[15]
+        #self.allele = items[2].lower()
+        self.ref = items[1]
+        self.refstart = int( items[3] ) 
+        self.reflength = int(items[5])
+        self.refstrand = items[7]
+        if self.reflength == 0 and self.length == 0:
+            sys.stderr.write('Not an insertion or a deletion: length1 == length2 ==0: %s\t%d\n' %(self.sampleName, self.refstart))
+
         refitems = self.ref.split('.')
         if len(refitems) <=2:
             sys.stderr.write('Reference sequence must provide chromosome info: i.e: species.chr\n')
             sys.exit(1)
         self.refchrom = refitems[1]
+        
+        #TEMP:
+        if self.refstrand == 0:
+            sys.stderr.write("Cactus indels are on negative strand\n")
+            sys.exit(1)
 
         #Convert coordinate if necessary:
         if len(refitems) == 6:
@@ -75,7 +94,7 @@ class SnpSite():
                 self.refstart = self.refstart + offset
             else:
                 self.refstart = self.refstart + reflen - (offset + fraglen)
-        self.refallele = items[5].lower()
+        #self.refallele = items[5].lower()
         self.sampleName = sampleName
         self.referenceName = referenceName
     
@@ -185,98 +204,149 @@ def reverse(s):
     else:
         return s
 
-def readDbSnps(file):
+def checkSizeCutoff(snp, cutoff):
+    #Note, only check for 'deletion' and insertion' cases. In case of in-del, don't check
+    if snp.type == 'deletion' and snp.chromEnd - snp.chromStart > cutoff:
+        return False
+    elif snp.type == 'insertion':
+        flag = False
+        for allele in snp.observed:
+            if allele != '-' and len(allele) <= cutoff:
+                flag = True
+                break
+        return flag
+    return True
+
+def readDbSnps(file, cutoff):
     f = open(file, 'r')
-    snps = []
+    #indels = []
+    insertions = []
+    deletions = []
 
     for line in f:
         if re.search('chromStart', line):
             continue
         snp = Snp(line)
-        #if snp.type == 'single' or snp.type == 'mnp':
-        if snp.isSnp:
-            snps.append( snp )
+        if snp.type == 'in-del':
+            #indels.append(snp)
+            insertions.append(snp)
+            deletions.append(snp)
+        elif snp.type == 'insertion' and checkSizeCutoff(snp, cutoff):
+            insertions.append(snp)
+        elif snp.type == 'deletion' and checkSizeCutoff(snp, cutoff):
+            deletions.append(snp)
 
-    return snps
+    #return indels, insertions, deletions
+    return insertions, deletions
 
-def readPgSnp(file):
+def readPgSnp(file, cutoff):
     f = open(file, 'r')
-    sample2snps = {}
+    sample2ins = {}
+    sample2dels = {}
     for line in f:
         if re.search(line, 'chromStart'):
             continue
         snp = PgSnp(line)
-        if not snp.isSnp:
-            continue
-        if snp.sample not in sample2snps:
-            sample2snps[snp.sample] = [snp]
-        else:
-            sample2snps[snp.sample].append(snp)
+        if snp.isIndel != ""  and snp.alleleSize <= cutoff:
+            if snp.isIndel == 'insertion':
+                if snp.sample not in sample2ins:
+                    sample2ins[snp.sample] = [snp]
+                else:
+                    sample2ins[snp.sample].append(snp)
+            elif snp.isIndel == 'deletion':
+                if snp.sample not in sample2dels:
+                    sample2dels[snp.sample] = [snp]
+                else:
+                    sample2dels[snp.sample].append(snp)
+                
     f.close()
-    return sample2snps
+    return sample2ins, sample2dels
 
-
-def readRefSnps(file, filteredSamples):
+def readRefSnps(file, filteredSamples, cutoff):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
-    snps = {}
+    ins = {}
+    dels = {}
     samples = []
     for sample in root.findall( 'statsForSample' ):
         name = sample.attrib['sampleName']
         if name == 'ROOT' or name == '' or name in filteredSamples:
             continue
         samples.append(name)
-        snps[name] = []
+        ins[name] = []
+        dels[name] = []
         ref = sample.attrib['referenceName']
         #totalSnps = int( sample.attrib['totalErrors'] )
         sites = sample.text.strip().split('\n')
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
-               snp = SnpSite(site, name, ref)
-               snps[name].append( snp )
-    return snps, samples
+                snp = SnpSite(site, name, ref)
+                if snp.length <= cutoff and snp.reflength <= cutoff:
+                    if snp.reflength > 0 and snp.length == 0:
+                        dels[name].append(snp)
+                    elif snp.reflength == 0 and snp.length > 0:
+                        ins[name].append(snp)
+                    else:
+                        ins[name].append(snp)
+                        dels[name].append(snp)
+                        #sys.stderr.write('Not an insertion or a deletion: length1 == length2 ==0: %s\t%d, %d\n' %(snp.sampleName, snp.refstart, snp.start))
 
-def checkAlleles(allele, refallele, snp):
-    if refallele != snp.refNCBI and refallele != snp.refUCSC:
+    return ins, dels, samples
+
+def checkAlleles(refsnp, dbsnp):
+    reflen = abs(refsnp.length - refsnp.reflength) #our indel length
+    dblen = dbsnp.chromEnd - dbsnp.chromStart
+    if dbsnp.type == 'deletion':
+        if reflen == dblen:
+            return True
+        else:
+            return False
+    elif dbsnp.type == 'insertion' or refsnp.length > 0:#insertion
+        for allele in dbsnp.observed:
+            if allele != '-' and len(allele) == reflen:
+                return True
         return False
-    elif allele not in snp.observed:
-        return False
+    elif refsnp.reflength > 0: #in-del, deletion
+        return True
     return True
 
-def checkPgAlleles(allele, pgsnp):
-    if allele not in pgsnp.alleles:
-        return False
-    return True
-   
-def calcOverlapSnps(snps, reportedSnps, isPgSnp):#reportedSnps can be dbSnps or pgSnps
+def checkPgAlleles(refsnp, pgsnp):
+    reflen = abs(refsnp.length - refsnp.reflength)
+    if reflen == pgsnp.alleleSize:
+        return True
+    return False
+
+def calcDbIndelOverlap(snps, dbsnps, wobble, isPgSnp):#reportedSnps can be dbSnps or pgSnps
     refTotal = len(snps)
-    totalSnps = len(reportedSnps)
-    tpPos = 0 #pass position check (coordinate check) 
-    tp = 0 #pass both coordinate and allele check
+    totalSnps = len(dbsnps)
+    tp = 0 
+    tpPos = 0
     currindex = 0
 
-    for s in snps:
+    #dumpfh = open("dump.txt", "a")
+
+    for s in snps: #each indel
         flag = False
-        for i in xrange(currindex,totalSnps):
-            dbs = reportedSnps[i].chromStart
-            dbe = reportedSnps[i].chromEnd
+        for i in xrange(currindex, totalSnps):
+            dbs = dbsnps[i].chromStart
+            dbe = dbsnps[i].chromEnd
 
             if flag == False:
                 currindex = i
-            if dbe <= s.refstart :
+            if dbs < s.refstart - wobble:
                 #print "\tnot there yet: %d < %d" %(s.refstart, dbs)
                 continue
-            elif dbs <= s.refstart : # < dbe
+            elif  s.refstart - wobble <= dbs and dbs <= s.refstart + wobble: # < dbe
                 flag = True
                 #print "\tfound it! %d, %d" %(s.refstart, dbs)
-                #tpPos += 1
-                if (isPgSnp and checkPgAlleles(s.allele, reportedSnps[i]) ) or (not isPgSnp and checkAlleles(s.allele, s.refallele, reportedSnps[i])):
+                if (isPgSnp and checkPgAlleles(s, dbsnps[i]) ) or (not isPgSnp and checkAlleles(s, dbsnps[i])):
                 #if checkAlleles(s.allele, s.refallele, reportedSnps[i].alleles):
                     tp += 1
+                    #dumpfh.write("%d\n" %(s.refstart - dbs))
                     break
                 #else:
                 #    sys.stderr.write("%s\t%d\t%d\tourref: %s\tourAllele: %s\tncbi: %s\tucsc: %s\tobserved: %s\n" %(s.sampleName, s.refstart, dbs, s.refallele, s.allele, reportedSnps[i].refNCBI, reportedSnps[i].refUCSC, ','.join(reportedSnps[i].observed) ))
-            else: #s.refstart < dbs
+            else: #s.refstart + wobble < dbs
                 #print "\tGone too far, stop: %d, %d" %(s.refstart, dbs)
                 break
         if flag == True: #pass position check
@@ -284,23 +354,24 @@ def calcOverlapSnps(snps, reportedSnps, isPgSnp):#reportedSnps can be dbSnps or 
 
     return tp, tpPos
 
-def getStats(dbsnps, refsnps, samples, sample2snps):
-    dbsnps.sort()
-    #print [ s.chromStart for s in dbsnps]
+def getStats(dbsnps, refsnps, samples, sample2snps, wobble):
+    #dbsnps.sort()
+    #dbindels.sort()
 
     totalSnps = len(dbsnps)
-    sys.stdout.write("Sample\tTotalCalledSnps\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tFP\tPercentageFP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\n")
+    sys.stdout.write("Sample\tTotalCalled\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\n")
+    
     for sample in samples:
-        #sys.stderr.write("Sample %s, sorting...\n" %(sample))
         snps = sorted( refsnps[sample] )
-        #sys.stderr.write("Done sorting, len %d\n" %(len(snps)))
         
-        #Check against dbSnps
-        tp, tpPos = calcOverlapSnps(snps, dbsnps, False)
+        #Check against dbSnps (Insertions or deletions)
+        tp, tpPos = calcDbIndelOverlap(snps, dbsnps, wobble, False)
+        #tp1, tpPos1 = calcDbIndelOverlap(snps, dbindels, wobble, False)
+        #tp += tp1
+        #tpPos += tpPos1
         refTotal = len(snps)
         fp = refTotal - tp 
         if refTotal > 0:
-            #sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
             sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tpPos, 100.0*tpPos/refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
         else:
             sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tpPos, 0.00, tp, 0.00, fp, 0.00))
@@ -309,16 +380,13 @@ def getStats(dbsnps, refsnps, samples, sample2snps):
         if sample in sample2snps:
             pgsnps = sample2snps[sample]
             pgsnps.sort()
-            pgTp, pgTpPos = calcOverlapSnps(snps, pgsnps, True)
+            pgTp, pgTpPos = calcDbIndelOverlap(snps, pgsnps, wobble, True)
             pgTotal = len(pgsnps)
             fn = pgTotal - pgTp
             if refTotal > 0 and pgTotal > 0:
-                #sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
                 sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 100.0*pgTpPos/refTotal, pgTp, 100.0*pgTp/refTotal, fn, 100.0*fn/pgTotal))
             else:
                 sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 0.00, tp, 0.00, fn, 0.00))
-
-        #check against snps that were reported specifically for the sample
 
         sys.stdout.write("\n")
 
@@ -327,6 +395,8 @@ def initOptions( parser ):
     #parser.add_option('-o', '--outfile', dest='outfile', default='', help='Output file. Default is stdout' )
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
     parser.add_option('--pgSnp', dest='pgSnp', help="pgSnp file (snps found in each sample)")
+    parser.add_option('-w', dest='wobble', type='int', default=0, help="Default = 0")
+    parser.add_option('-c', '--cutoff', dest='cutoff', type='int', default = 10, help='Cutoff size of indels to be included in the analysis. Default = 10')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -351,12 +421,15 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     
-    dbsnps = readDbSnps( args[1] )
+    dbinsertions, dbdeletions = readDbSnps( args[1], options.cutoff )
     sample2snps = {}
     if options.pgSnp:
-        sample2snps = readPgSnp(options.pgSnp)
-    refsnps,samples = readRefSnps( args[0], options.filteredSamples )
-    getStats( dbsnps, refsnps, samples, sample2snps )
+        sample2ins, sample2dels = readPgSnp(options.pgSnp, options.cutoff)
+    refins, refdels,samples = readRefSnps( args[0], options.filteredSamples, options.cutoff )
+    sys.stdout.write("Insertions:\n")
+    getStats( dbinsertions, refins, samples, sample2ins, options.wobble)
+    sys.stdout.write("\nDeletions:\n")
+    getStats( dbdeletions, refdels, samples, sample2dels, options.wobble )
 
     #Delete dbfile, refdbfile ...
 
