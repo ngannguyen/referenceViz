@@ -196,6 +196,7 @@ def readDbSnps(file):
         #if snp.type == 'single' or snp.type == 'mnp':
         if snp.isSnp:
             snps.append( snp )
+    sys.stdout.write("TotalSnps\t%d\n" % (len(snps)))
 
     return snps
 

@@ -31,6 +31,8 @@ class Setup(Target):
         self.pdflatex = options.pdflatex
         self.dbsnp = options.dbsnp
         self.pgsnp = options.pgsnp
+        self.dbindel = options.dbindel
+        self.pgindel = options.pgindel
 
     def run(self):
          experiments = os.listdir(self.indir)
@@ -67,7 +69,11 @@ class Setup(Target):
                  self.addChildTarget( SnpCheck(indir, outdir, pattern, filteredSamples, self.dbsnp, self.pgsnp) )
              if 'indelcheck' in self.analyses:
                  pattern = "pathStats_hg19.xml"
-                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbsnp, self.pgsnp) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5) )
+                 pattern = "pathStats_hg19_withAggregates.xml"
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5) )
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
              if 'indeltab' in self.analyses:
@@ -122,7 +128,7 @@ class N50(Target):
         self.filteredSamples = filteredSamples
 
     def run(self):
-        pattern = "pathStats_.+\.xml"
+        pattern = "pathStats_[^_]+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
         sortkey = "scaffoldPathN50"
@@ -168,7 +174,7 @@ class SnpCheck(Target):
                 system("snpStats.py --pgSnp %s %s %s > %s" %(self.pgsnp, file, self.dbsnp, outfile))
 
 class IndelCheck(Target):
-    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp):
+    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, wobble):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
@@ -176,16 +182,17 @@ class IndelCheck(Target):
         self.filteredSamples = filteredSamples
         self.dbsnp = dbsnp
         self.pgsnp = pgsnp
+        self.wobble = wobble
 
     def run(self):
         files = getfiles(self.pattern, self.indir)
         for file in files:
             name = os.path.basename(file).lstrip('pathStats_').rstrip('.xml')
-            outfile = os.path.join(self.outdir, "indelCheck_%s.txt" %name)
+            outfile = os.path.join(self.outdir, "indelCheck_%d_%s.txt" %(self.wobble, name))
             if self.pgsnp == None:
-                system("indelStats.py -w 5 %s %s > %s" %(file, self.dbsnp, outfile))
+                system("indelStats.py -w %d %s %s > %s" %(self.wobble, file, self.dbsnp, outfile))
             else:
-                system("indelStats.py -w 5 --pgSnp %s %s %s > %s" %(self.pgsnp, file, self.dbsnp, outfile))
+                system("indelStats.py -w %d --pgSnp %s %s %s > %s" %(self.wobble, self.pgsnp, file, self.dbsnp, outfile))
 
 class IndelDist(Target):
     def __init__(self, indir, outdir, filteredSamples):
@@ -211,7 +218,7 @@ class IndelTab(Target):
         self.filteredSamples = filteredSamples
 
     def run(self):
-        pattern = "pathStats_.+\.xml"
+        pattern = "pathStats_[^_]+\.xml"
         files = getfiles(pattern, self.indir)
         filesStr = " ".join(files)
         pattern = "snpStats_[^_]+\.xml"
@@ -270,6 +277,8 @@ def initOptions( parser ):
     parser.add_option('-l', '--pdflatex', dest='pdflatex', action="store_true", default=False, help='If specified, convert tex files to pdf using "pdflatex" (This must be installed)')
     parser.add_option('--dbsnp', dest='dbsnp', help='dbSnps file') 
     parser.add_option('--pgsnp', dest='pgsnp', help='pgSnps file') 
+    parser.add_option('--dbindel', dest='dbindel', help='dbSnps indels file') 
+    parser.add_option('--pgindel', dest='pgindel', help='pgSnps indels file') 
     parser.add_option('-a', '--analyses', dest='analyses', default='all', \
                       help='Comma separated string of different analyses to perform.\n\
                       Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,all].\n\
@@ -284,6 +293,10 @@ def checkOptions( args, options, parser ):
         parser.error('Dbsnp file does not exist or was not provided\n')
     if not os.path.exists(options.pgsnp):
         parser.error('pgsnp file does not exist\n')
+    if not options.dbindel or not os.path.exists(options.dbindel):
+        parser.error('Dbindel file does not exist or was not provided\n')
+    if not os.path.exists(options.pgindel):
+        parser.error('pgsnp indel file does not exist\n')
     if re.search('all', options.analyses):
         options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck'
     options.analyses = (options.analyses).split(',')
