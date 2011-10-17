@@ -1,7 +1,7 @@
 binPath = ../bin
 libPath = ../lib
 
-progs = $(notdir $(wildcard indelStats.py snpStats.py parseBam.py getReads.py mapReadsToRef.py cnvPlot.py summaryStats.py indelTable.py indelDistPlot.py getPlots.py contiguityPlot.py coveragePlot.py n50Plot.py snpPlot.py))
+progs = $(notdir $(wildcard bamGetPairs.py indelStats.py snpStats.py parseBam.py getReads.py mapReadsToRef.py cnvPlot.py summaryStats.py indelTable.py indelDistPlot.py getPlots.py contiguityPlot.py coveragePlot.py n50Plot.py snpPlot.py))
 
 .PHONY: %.all
 

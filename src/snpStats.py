@@ -4,7 +4,7 @@
 Compare Snps between each sample and the reference with the set of Snps in dbSnps
 """
 
-import os, sys, re
+import os, sys, re, copy
 #import sqlite3
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
@@ -178,6 +178,23 @@ class Snp():
     #            self.strand, self.refNCBI, self.refUCSC, self.observed, self.molType,\
     #            self.type, self.func, self.locType, self.exceptions, self.alleleFreqCount, self.alleles, self.alleleFreqs)
 
+def splitDbSnp(snp):
+    snps = []
+    if len(snp.observed) == 0 or len(snp.refNCBI) != len(snp.observed[0]) or len(snp.refUCSC) != len(snp.observed[0]):
+        #sys.stderr.write("%d, Len refNCBI %s %d, len refUCSC %s %d, len observed[0]: %s %d\n" %( snp.chromStart, snp.refNCBI, len(snp.refNCBI), snp.refUCSC, len(snp.refUCSC), snp.observed[0], len(snp.observed[0])))
+        return snps
+    #sys.stderr.write("Splitting snps...\n")
+    for i, refAllele in enumerate( snp.refNCBI ):
+        s = copy.copy( snp )
+        s.refNCBI = refAllele
+        s.refUCSC = snp.refUCSC[i]
+        s.chromStart = snp.chromStart + i
+        s.observed = [ a[i] for a in snp.observed ]
+        s.isSnp = True
+        s.type = 'single'
+        snps.append(s)
+    return snps
+
 def reverse(s):
     d = {'a':'t', 't':'a', 'c':'g', 'g':'c'}
     if s in d:
@@ -185,29 +202,46 @@ def reverse(s):
     else:
         return s
 
-def readDbSnps(file):
+def isInRange(coord, start, end):
+    if start != None and coord < start:
+        return False
+    if end != None and coord > end:
+        return False
+    return True
+
+def readDbSnps(file, start, end):
     f = open(file, 'r')
     snps = []
+    nummnp = 0
 
     for line in f:
         if re.search('chromStart', line):
             continue
         snp = Snp(line)
         #if snp.type == 'single' or snp.type == 'mnp':
-        if snp.isSnp:
+        inrange = isInRange(snp.chromStart, start, end)
+        if inrange and snp.type == 'mnp':
+            #sys.stderr.write("mnp\n")
+            subsnps = splitDbSnp(snp)
+            nummnp += len(subsnps)
+            for s in subsnps:
+                if isInRange(s.chromStart, start, end):
+                    snps.append( s )
+        elif snp.isSnp and inrange:
             snps.append( snp )
     sys.stdout.write("TotalSnps\t%d\n" % (len(snps)))
+    sys.stderr.write("numMNP: %d\n" %(nummnp))
 
     return snps
 
-def readPgSnp(file):
+def readPgSnp(file, start, end):
     f = open(file, 'r')
     sample2snps = {}
     for line in f:
         if re.search(line, 'chromStart'):
             continue
         snp = PgSnp(line)
-        if not snp.isSnp:
+        if not snp.isSnp or not isInRange(snp.chromStart, start, end):
             continue
         if snp.sample not in sample2snps:
             sample2snps[snp.sample] = [snp]
@@ -216,8 +250,7 @@ def readPgSnp(file):
     f.close()
     return sample2snps
 
-
-def readRefSnps(file, filteredSamples):
+def readRefSnps(file, filteredSamples, start, end):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
     snps = {}
@@ -234,7 +267,8 @@ def readRefSnps(file, filteredSamples):
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
                snp = SnpSite(site, name, ref)
-               snps[name].append( snp )
+               if isInRange(snp.refstart, start, end):
+                   snps[name].append( snp )
     return snps, samples
 
 def checkAlleles(allele, refallele, snp):
@@ -328,6 +362,8 @@ def initOptions( parser ):
     #parser.add_option('-o', '--outfile', dest='outfile', default='', help='Output file. Default is stdout' )
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
     parser.add_option('--pgSnp', dest='pgSnp', help="pgSnp file (snps found in each sample)")
+    parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
+    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -352,11 +388,11 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     
-    dbsnps = readDbSnps( args[1] )
+    dbsnps = readDbSnps( args[1], options.startCoord, options.endCoord )
     sample2snps = {}
     if options.pgSnp:
-        sample2snps = readPgSnp(options.pgSnp)
-    refsnps,samples = readRefSnps( args[0], options.filteredSamples )
+        sample2snps = readPgSnp(options.pgSnp, options.startCoord, options.endCoord)
+    refsnps,samples = readRefSnps( args[0], options.filteredSamples, options.startCoord, options.endCoord )
     getStats( dbsnps, refsnps, samples, sample2snps )
 
     #Delete dbfile, refdbfile ...

@@ -215,7 +215,14 @@ def checkSizeCutoff(snp, cutoff):
         return flag
     return True
 
-def readDbSnps(file, cutoff):
+def isInRange(coord, start, end):
+    if start != None and coord < start:
+        return False
+    if end != None and coord > end:
+        return False
+    return True
+
+def readDbSnps(file, cutoff, start, end):
     f = open(file, 'r')
     #indels = []
     insertions = []
@@ -228,6 +235,9 @@ def readDbSnps(file, cutoff):
         if re.search('chromStart', line):
             continue
         snp = Snp(line)
+        inrange = isInRange(snp.chromStart, start, end)
+        if not inrange:
+            continue
         if snp.type == 'in-del':
             #indels.append(snp)
             numindels +=1
@@ -245,7 +255,7 @@ def readDbSnps(file, cutoff):
     #return indels, insertions, deletions
     return insertions, deletions
 
-def readPgSnp(file, cutoff):
+def readPgSnp(file, cutoff, start, end):
     f = open(file, 'r')
     sample2ins = {}
     sample2dels = {}
@@ -253,7 +263,7 @@ def readPgSnp(file, cutoff):
         if re.search(line, 'chromStart'):
             continue
         snp = PgSnp(line)
-        if snp.isIndel != ""  and snp.alleleSize <= cutoff:
+        if snp.isIndel != ""  and snp.alleleSize <= cutoff and isInRange(snp.chromStart, start, end):
             if snp.isIndel == 'insertion':
                 if snp.sample not in sample2ins:
                     sample2ins[snp.sample] = [snp]
@@ -268,7 +278,7 @@ def readPgSnp(file, cutoff):
     f.close()
     return sample2ins, sample2dels
 
-def readRefSnps(file, filteredSamples, cutoff):
+def readRefSnps(file, filteredSamples, cutoff, start, end):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
     ins = {}
@@ -287,7 +297,7 @@ def readRefSnps(file, filteredSamples, cutoff):
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
                 snp = SnpSite(site, name, ref)
-                if snp.length <= cutoff and snp.reflength <= cutoff:
+                if snp.length <= cutoff and snp.reflength <= cutoff and isInRange(snp.refstart, start, end):
                     if snp.reflength > 0 and snp.length == 0:
                         dels[name].append(snp)
                     elif snp.reflength == 0 and snp.length > 0:
@@ -423,6 +433,8 @@ def initOptions( parser ):
     parser.add_option('--pgSnp', dest='pgSnp', help="pgSnp file (snps found in each sample)")
     parser.add_option('-w', dest='wobble', type='int', default=0, help="Default = 0")
     parser.add_option('-c', '--cutoff', dest='cutoff', type='int', default = 10, help='Cutoff size of indels to be included in the analysis. Default = 10')
+    parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
+    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -447,11 +459,12 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     
-    dbinsertions, dbdeletions = readDbSnps( args[1], options.cutoff )
-    sample2snps = {}
+    dbinsertions, dbdeletions = readDbSnps( args[1], options.cutoff, options.startCoord, options.endCoord )
+    sample2ins = {}
+    sample2dels = {}
     if options.pgSnp:
-        sample2ins, sample2dels = readPgSnp(options.pgSnp, options.cutoff)
-    refins, refdels,samples = readRefSnps( args[0], options.filteredSamples, options.cutoff )
+        sample2ins, sample2dels = readPgSnp(options.pgSnp, options.cutoff, options.startCoord, options.endCoord)
+    refins, refdels,samples = readRefSnps( args[0], options.filteredSamples, options.cutoff, options.startCoord, options.endCoord )
     sys.stdout.write("Type\tSample\tTotalCalled\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\n")   
     #sys.stdout.write("Insertions:\n")
     getStats( dbinsertions, refins, samples, sample2ins, options.wobble, 'insertion')

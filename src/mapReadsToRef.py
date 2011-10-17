@@ -6,7 +6,7 @@ Sep 12 2011
 Input: 
 Output:
 """
-import os, sys, re
+import os, sys, re, copy
 from optparse import OptionParser
 
 from jobTree.scriptTree.target import Target
@@ -24,30 +24,87 @@ class Setup(Target):
     Setup mapping runs
     """
     def __init__(self, options):
-        #Target.__init__(self, time=0.00025)
         Target.__init__(self)
         self.options = options
-
+    
     def run(self):
         setLogLevel("DEBUG")
         options = self.options
-        system("mkdir -p %s" %options.outdir)
+        system("mkdir -p %s" %(options.outdir))
+
+        experiments, samples =  getExperiments(options.cactusdir)
+        for i, exp in enumerate(experiments):
+            sample = samples[i]
+            logger.info("Experiment %s, sample %s\n" %(exp, sample) )
+            self.addChildTarget( RunExperiment(options, exp, sample) )
+
+class RunExperiment(Target):
+    """
+    """
+    def __init__(self, options, cactusdir, sample):
+        Target.__init__(self)
+        self.options = options
+        self.cactusdir = cactusdir
+        self.sample = sample
+
+    def run(self):
+        globalTempDir = self.getGlobalTempDir()
+        expdir = os.path.join(self.options.outdir, self.cactusdir)
+        system("mkdir -p %s" %expdir)
+        #Get cactus reference sequence:
+        localTempDir = self.getLocalTempDir()
+        system("cp -R %s %s" %(os.path.join(self.options.cactusdir, self.cactusdir, 'cactusAlignment'), localTempDir))
+        cactusRef = os.path.join(localTempDir, "cactusRef.fa")
+        command = "cactus_getReferenceSeq -c '<st_kv_database_conf type=\"tokyo_cabinet\"><tokyo_cabinet database_dir=\"%s\" /></st_kv_database_conf>' -b reference -e %s -d 0 " %(os.path.join(localTempDir, 'cactusAlignment'),cactusRef)
+        system("%s" %command)
+        globalCactusRef = os.path.join(globalTempDir, "cactusRef.fa")
+        system("samtools faidx %s" %cactusRef)
+        system("cp %s* %s" %(cactusRef, globalTempDir))
+
+        readdir = os.path.join(self.options.readdir, self.sample)
+        #Map to cactus ref:
+        cactusRefDir = os.path.join(expdir, "cactusRef")
+        self.addChildTarget( RunMapping(self.options, globalCactusRef, cactusRefDir, readdir) )
+        #Map to hg19
+        hg19Dir = os.path.join(expdir, "hg19")
+        self.addChildTarget( RunMapping(self.options, self.options.ref, hg19Dir, readdir) )
+
+
+class RunMapping(Target):
+    """
+    Setup mapping runs
+    """
+    def __init__(self, options, refseq, outdir, readdir):
+        #Target.__init__(self, time=0.00025)
+        Target.__init__(self)
+        self.options = options
+        self.refseq = refseq
+        self.outdir = outdir
+        self.readdir = readdir
+
+    def run(self):
+        globalTempDir = self.getGlobalTempDir()
+        options = copy.copy( self.options )
+        system("mkdir -p %s" %self.outdir)
 
         #Run bwa index:
-        refpath = os.path.join( options.outdir, "bwaRef" )
-        refpath = os.path.join( refpath, "bwaRef")
+        refpath = os.path.join( globalTempDir, "bwaRef" )
+        refseq = os.path.join(refpath, self.refseq)
         if options.bwaRefIndex != None:
             refpath = options.bwaRefIndex
         else:
             system("mkdir -p %s" %refpath)
-            system( "bwa index -p %s %s" %(refpath , options.ref) )
-            logger.info("Bwa indexed reference %s at with prefix %s\n" %(options.ref, refpath) )
-        self.addChildTarget( Paired(options, refpath, "illumina", self.options.iMaxInsertSize) )
-        self.addChildTarget( Single(options, refpath, "illumina") )
+            system("cp %s* %s" %(self.refseq, refpath))
+            refpath = os.path.join( refpath, "bwaRef" )
+            system( "bwa index -p %s %s" %(refpath , self.refseq) )
+            logger.info("Bwa indexed reference %s at with prefix %s\n" %(self.refseq, refpath) )
+        options.refseq = refseq
+        self.addChildTarget( Paired(options, refpath, "illumina", self.options.iMaxInsertSize, self.outdir, self.readdir) )
+        self.addChildTarget( Single(options, refpath, "illumina", self.outdir, self.readdir) )
         #GOt error running ssaha2 for 454paired (required 2 reads of the same pair to have the same length), so for now, use bwa
-        self.addChildTarget( Paired(options, refpath, "ls454", self.options.ls454MaxInsertSize) )
+        #self.addChildTarget( Paired(options, refpath, "ls454", self.options.ls454MaxInsertSize, self.outdir) )
         #bwa sw (default setting) sometimes return hits with low identity percentage, as well as return chimera hits (so one read can potentially have 2, 3 hits)
-        self.addChildTarget( Single(options, refpath, "ls454") )
+        #self.addChildTarget( Single(options, refpath, "ls454", self.outdir) )
 
         #Run bwasw index (for ls454 single)
         #refpath = os.path.join( options.outdir, "bwaswRef" )
@@ -83,18 +140,20 @@ class Setup(Target):
 
         #Combine results:
         if not self.options.nostats:
-            self.setFollowOnTarget( CombineResults(options) )
+            self.setFollowOnTarget( CombineResults(options, self.outdir) )
         #self.setFollowOnTarget( AggregateResults(options) )
 
 class CombineResults(Target):
-    def __init__(self, options):
+    def __init__(self, options, outdir):
         Target.__init__(self)
         #Target.__init__(self, time=0.0025)
         self.options = options
+        self.outdir = outdir
 
     def run(self):
-        outdir = self.options.outdir
-        exps = ['illumina', 'ls454']
+        outdir = self.outdir
+        #exps = ['illumina', 'ls454']
+        exps = ['illumina']
         if not self.options.ignoreSolid:
             exps.append('abi_solid')
         types = ['single', 'paired']
@@ -109,7 +168,7 @@ class CombineResults(Target):
                     f = open(os.path.join(expPath, "stats", "stats.txt"), "r")
                     i = 0
                     lastline = ""
-                    for line in f.readlines():
+                    for line in f:
                         if i == 0:
                             i = 1
                             if header == "":
@@ -160,7 +219,7 @@ class SolidSingle(Target):
                 self.addChildTarget( RunSolidSingle(self.options, solidSingleOutdir, self.refpath, solidSinglePath, file) )
             
             #Merge stat files:
-            self.setFollowOnTarget( MergeResults(statsdir) )
+            self.setFollowOnTarget( MergeResults(statsdir, self.options) )
             #Merge alignment files:
             #self.setFollowOnTarget( MergeBams(solidSingleOutdir) )
 
@@ -188,22 +247,24 @@ class SolidPaired(Target):
                     self.addChildTarget( RunSolidPaired(self.options, solidPairedOutdir, self.refpath, solidPairedPath, "%s_1%s" %(pair, nametail), "%s_2%s" %(pair, nametail)) )
 
             #Merge stat files:
-            self.setFollowOnTarget( MergeResults(statsdir) )
+            self.setFollowOnTarget( MergeResults(statsdir, self.options) )
             #Merge alignment files:
             #self.setFollowOnTarget( MergeBams(solidPairedOutdir) )
 
 class Single(Target):
-    def __init__(self, options, refpath, machine):
+    def __init__(self, options, refpath, machine, outdir, readdir):
         Target.__init__(self)
         #Target.__init__(self, time = 0.0025)
         self.options = options
         self.refpath = refpath
         self.machine = machine
+        self.outdir = outdir
+        self.readdir = readdir
     
     def run(self):
-        inPath = os.path.join(self.options.readdir, self.machine, "single")
+        inPath = os.path.join(self.readdir, self.machine, "single")
         if os.path.exists( inPath ):
-            outdir = os.path.join(self.options.outdir, self.machine, "single")
+            outdir = os.path.join(self.outdir, self.machine, "single")
             system("mkdir -p %s" %outdir)
             statsdir = os.path.join(outdir, "stats")
             system("mkdir -p %s" %statsdir)
@@ -215,23 +276,25 @@ class Single(Target):
                 self.addChildTarget( RunBwaSingle(self.options, outdir, self.refpath, inPath, file) )
             
             #Merge stat files:
-            self.setFollowOnTarget( MergeResults(statsdir) )
+            self.setFollowOnTarget( MergeResults(statsdir, self.options) )
             #Merge alignment files:
             #self.setFollowOnTarget( MergeBams(outdir) )
 
 class Paired(Target):
-    def __init__(self, options, refpath, machine, maxInsert):
+    def __init__(self, options, refpath, machine, maxInsert, outdir, readdir):
         Target.__init__(self)
         #Target.__init__(self, time=0.0025)
         self.options = options
         self.refpath = refpath
         self.machine = machine
         self.maxInsert = maxInsert
+        self.outdir = outdir
+        self.readdir = readdir
     
     def run(self):
-        inPath = os.path.join(self.options.readdir, self.machine, "paired")
+        inPath = os.path.join(self.readdir, self.machine, "paired")
         if os.path.exists( inPath ):
-            outdir = os.path.join(self.options.outdir, self.machine, "paired")
+            outdir = os.path.join(self.outdir, self.machine, "paired")
             system("mkdir -p %s" % outdir)
             statsdir = os.path.join(outdir, "stats")
             system("mkdir -p %s" %statsdir)
@@ -245,7 +308,7 @@ class Paired(Target):
                     self.addChildTarget( RunBwaPaired(self.options, outdir, self.refpath, inPath, "%s_1%s" %(pair, nametail), "%s_2%s" %(pair, nametail), self.maxInsert) )
 
             #Merge stat files:
-            self.setFollowOnTarget( MergeResults(statsdir) )
+            self.setFollowOnTarget( MergeResults(statsdir, self.options) )
             #Merge alignment files:
             #self.setFollowOnTarget( MergeBams(ls454PairedOutdir) )
 
@@ -267,12 +330,11 @@ class RunBwaPaired(Target):
 
     def run(self):
         #HACK:
-        if os.path.exists( os.path.join(self.outdir, "%s.bam" %self.name) ):
-            return
-        if os.path.exists( os.path.join(self.outdir, "inrangeOrUnmapped", "%s.bam" %self.name) ):
-            return
+        #if os.path.exists( os.path.join(self.outdir, "%s.bam" %self.name) ):
+        #    return
+        #if os.path.exists( os.path.join(self.outdir, "inrangeOrUnmapped", "%s.bam" %self.name) ):
+        #    return
         #END HACK
-
 
         localTempDir = self.getLocalTempDir()
         globalTempDir = self.getGlobalTempDir()
@@ -333,6 +395,8 @@ class RunBwaSingle(Target):
         if os.path.exists( os.path.join(self.outdir, "%s.bam" %self.name) ):
             return
         if os.path.exists( os.path.join(self.outdir, "inrangeOrUnmapped", "%s.bam" %self.name) ):
+            return
+        if re.search("unmappedSorted-single", self.name):
             return
         #END HACK
         
@@ -487,6 +551,7 @@ class RunStats(Target):
             sortedbamFile, statsFile = stats(localTempDir, self.name, bamfile)
             statsdir = os.path.join(self.outdir, "stats")
             system("cp %s %s" %(statsFile, statsdir))
+            #system("cp %s %s" %(vcfFile, self.outdir))
 
         if self.options.getMappedReads2:
             inrangeDir = os.path.join(self.outdir, "inrangeOrUnmapped")
@@ -508,10 +573,11 @@ class RunStats(Target):
             system("scp -C %s.bam %s" %(outfilePrefix,self.outdir))
 
 class MergeResults(Target):
-    def __init__(self, indir):
+    def __init__(self, indir, options):
         #Target.__init__(self, time=0.25)
         Target.__init__(self)
         self.indir = indir
+        self.options = options
 
     def run(self):
         pattern = ".+-stats.txt"
@@ -526,10 +592,10 @@ class MergeResults(Target):
         for file in files:
             counts  = []
             f = open(file, 'r')
-            for line in f.readlines():
+            for line in f:
                 items = line.strip().split()
-                if len(items) < 2:
-                    continue
+                #if len(items) < 2:
+                #    continue
                 counts.append( int(items[0]) )
             f.close()
             total = counts[0]
@@ -547,26 +613,72 @@ class MergeResults(Target):
         outfh.write("\n")
         outfh.close()
 
+        if self.options.getMappedReads:
+            self.setFollowOnTarget( MergeBams( os.path.join(self.indir, ".."), self.options) )
+
 class MergeBams(Target):
-    def __init__(self, indir):
+    def __init__(self, indir, options):
         Target.__init__(self)
         self.indir = indir
+        self.options = options
 
     def run(self):
         files = os.listdir(self.indir)
-        if len(files) == 0:
+        count = 0
+        bams = []
+        for f in files:
+            if re.search(".bam", f):
+                count += 1
+                bams.append(f)
+        if count == 0:
             return
-        filesStr = " ".join([ os.path.join(self.indir, file) for file in files ])
-	logger.info("Merging %s\n" %filesStr)
-        mergeFile = os.path.join(self.indir, "merge.bam")
-        mergeCmd = "samtools merge %s %s" %(mergeFile, filesStr)
+        elif count == 1:
+            system("cp %s %s" %( os.path.join(self.indir, bams[0]), os.path.join(self.indir, "sortedMerge.bam") ) )
+            self.setFollowOnTarget( Snp(self.indir, self.options) )
+            return
+
+        #filesStr = " ".join([ os.path.join(self.indir, file) for file in files ])
+        localTempDir = self.getLocalTempDir()
+        for f in bams:
+            system("scp -C %s %s" %( os.path.join(self.indir, f), localTempDir) )
+        
+        localBams = [ os.path.join(localTempDir, b) for b in bams ]
+        bamStr = " ".join(localBams)
+        
+        #logger.info("Merging %s\n" %filesStr)
+        mergeFile = os.path.join(localTempDir, "merge.bam")
+        mergeCmd = "samtools merge %s %s" %(mergeFile, bamStr)
         system( mergeCmd )
-        sortPrefix = os.path.join(self.indir, "sortedMerge")
+        sortPrefix = os.path.join(localTempDir, "sortedMerge")
 	logger.info("Sorted %s with prefix %s\n" %(mergeFile, sortPrefix))
-        sortCmd = "samtools sort -n %s %s" %( mergeFile, sortPrefix)
+        sortCmd = "samtools sort %s %s" %( mergeFile, sortPrefix )
         system(sortCmd)
-        #Convert to sam:
-        system("samtools view %s.bam -o %s.sam" %(sortPrefix, sortPrefix))
+        #move to indir:
+        system("mv %s.bam %s" %(sortPrefix, self.indir))
+
+        #Get Snps info:
+        self.setFollowOnTarget( Snp(self.indir, self.options) )
+
+class Snp(Target):
+    def __init__(self, dir, options):
+        Target.__init__(self)
+        self.dir = dir
+        self.options = options
+
+    def run(self):
+        localTempDir = self.getLocalTempDir()
+        system("cp %s* %s" %(self.options.refseq, localTempDir))
+        system("cp %s %s" %(os.path.join(self.dir, "sortedMerge.bam"), localTempDir))
+        vcfFile = os.path.join(localTempDir, "merge.vcf")
+        cmd = "samtools mpileup %s -f %s -g | bcftools view -v - > %s" %(os.path.join(localTempDir, "sortedMerge.bam"), os.path.join(localTempDir, os.path.basename(self.options.refseq)), vcfFile)
+        system(cmd)
+        snpcountfile = os.path.join(localTempDir, "snpcount.txt")
+        system("grep -vc '^#' %s  > %s" %(vcfFile, snpcountfile))
+
+        #Move files back to dir:
+        system("mv %s %s" %(vcfFile, self.dir))
+        system("mv %s %s" %(snpcountfile, self.dir))
+
 
 def getfiles(pattern, indir):
     files = []
@@ -648,72 +760,7 @@ def getPairNames( files ):
                 sys.exit(1)
     return names, tail
 
-#def decodeFlag(flag):
-#    flagDict = {"isPaired": 0, "properlyPaired":1, "unmapped":2, \
-#                "unmappedMate":3, "strand":4, "mateStrand":5, "firstRead":6,\
-#                "secondRead":7, "notPrimaryAlign":8, "failedQual":9,\
-#                "duplicate":10}
-#
-#    for key in flagDict:
-#        if 2**flagDict[key] & flag == 0:
-#            flagDict[key] = False
-#        else:
-#            flagDict[key] = True
-#    return flagDict
-
-#def getStats(file, outfile):
-#    f = open(file, 'r')
-#    pair = 0
-#    prevReadUniquelyMapped = False
-#    prevFlagDict = {}
-#    counts = {"uniquely_mapped":0,\
-#              "with_itself_and_mate_uniquely_mapped":0,\
-#              "with_itself_and_mate_uniquely_mapped_and_properly_paired":0,\
-#              "uniquely_mapped_mate_not_uniquely_mapped":0,\
-#              "with_itself_and_mate_not_uniquely_mapped":0}
-#
-#    #for line in f.readlines():
-#    #while (line = f.readline()) != '':
-#    for line in f:
-#        pair += 1
-#        line = line.strip()
-#        if len(line) == 0 or line[0] == '@':
-#            continue
-#        items = line.split('\t')
-#        flagDict = decodeFlag( int(items[1]) )
-#        uniquelyMapped = True
-#        if len(items) >= 12 and re.search( 'XA:', '\t'.join([i for i in items[11:]]) ):
-#            uniquelyMapped = False
-#        
-#        if uniquelyMapped:
-#            if not flagDict['unmapped']:#Current read is mapped uniquely
-#                counts["uniquely_mapped"] += 1
-#                
-#                if flagDict['isPaired'] and pair %2 == 0:
-#                    if prevReadUniquelyMapped:
-#                        counts["with_itself_and_mate_uniquely_mapped"] += 2
-#                        if flagDict['properlyPaired']:
-#                            counts["with_itself_and_mate_uniquely_mapped_and_properly_paired"] += 2
-#                    elif not prevFlagDict['unmapped']:#prev read mapped but not uniquely
-#                        counts["uniquely_mapped_mate_not_uniquely_mapped"] += 1
-#        else:
-#            if not flagDict["unmapped"]:#current read is mapped but Not uniquely
-#                if flagDict["isPaired"] and pair %2 == 0:
-#                    if prevReadUniquelyMapped:
-#                        counts["uniquely_mapped_mate_not_uniquely_mapped"] += 1
-#                    elif not prevFlagDict['unmapped']:#prev read is mapped but not uniquely:
-#                        counts["with_itself_and_mate_not_uniquely_mapped"] +=2
-#
-#        prevReadUniquelyMapped = uniquelyMapped and (not flagDict["unmapped"])
-#        prevFlagDict = flagDict
-#    f.close()
-#
-#    #Print out stats:
-#    outfh = open(outfile, 'w')
-#    for k in sorted( counts.keys() ):
-#        outfh.write("%d\t%s\n" %(counts[k], k))
-#    outfh.close()
-
+#def stats(indir, name, file, refseq):
 def stats(indir, name, file):
     #Convert sam to bam for flagstat
     #bamfile = os.path.join(indir, "%s.bam" %name)
@@ -738,6 +785,17 @@ def stats(indir, name, file):
     #Return the sorted samfile, and statsfile
     return "%s.bam" % sortPrefix, statsFile
 
+def getExperiments(indir):
+    exps = []
+    samples = []
+    for d in os.listdir( indir ):
+        #if os.path.isdir(d):
+        items = d.split('_')
+        if len(items) > 2:
+            exps.append(d)
+            samples.append(items[len(items) -1])
+    return exps, samples
+
 def initOptions( parser ):
     #parser.add_option('-bwape', dest='bwape', help='Comma separated list of input bam/fastq read-files: reads1.bam,reads2.bam,otherReads1.bam,otherReads2.bam. Reads2 must follow reads1 file immediately in the list.')
     #parser.add_option('-bwa', dest='bwa', help='Comma separated list of input bam/fastq files.')
@@ -745,7 +803,8 @@ def initOptions( parser ):
     #parser.add_option('-ssaha2', dest='ssaha2', help='Comma separated list of input fastq files.')
     #parser.add_option('-ssaha2pe', dest='ssaha2pe', help='Comma separated list of input fastq files.')
     parser.add_option('-o', '--outdir', dest='outdir', default = ".", help='Output directory. Default is current directory')
-    parser.add_option('-i', '--readdir', dest='readdir', help='Required argument, directory where input fastq files are. The directory should have this hierachy: readdir/sampleName/sequencingPlatform/pairedOrSingle/file*.fastq')
+    parser.add_option('-r', '--readdir', dest='readdir', help='Required argument, directory where input fastq files are. The directory should have this hierachy: readdir/sampleName/sequencingPlatform/pairedOrSingle/file*.fastqOrBam')
+    parser.add_option('-c', '--cactusdir', dest='cactusdir', help='Required argument, directory where cactus outputs are. The directory should have this hierachy: cactusdir/experiement/files')
     #parser.add_option('--illuminaInsertSize', dest='iInsertSize', default = 200, type ="int", help="Insert size of illumina paired reads. Default = 200")
     parser.add_option('--illuminaMaxInsertSize', dest='iMaxInsertSize', default = 1000, type = "int", help="Maximum allowed insert size of illumina paired reads. Default = 1000")
     parser.add_option('--454MaxInsertSize', dest='ls454MaxInsertSize', default = 5000, type = "int", help="Maximum allowed insert size of illumina paired reads. Default = 5000")
