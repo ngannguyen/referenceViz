@@ -178,6 +178,15 @@ class Snp():
     #            self.strand, self.refNCBI, self.refUCSC, self.observed, self.molType,\
     #            self.type, self.func, self.locType, self.exceptions, self.alleleFreqCount, self.alleles, self.alleleFreqs)
 
+class Filter():
+    def __init__(self, line):
+        items = line.strip().split('\t')
+        if len(items) < 3:
+            sys.stderr.write("Filter region has wrong format: %s\n" %line)
+        self.chrom = items[0]
+        self.chromStart = int(items[1])
+        self.chromEnd = int(items[2])
+
 def splitDbSnp(snp):
     snps = []
     if len(snp.observed) == 0 or len(snp.refNCBI) != len(snp.observed[0]) or len(snp.refUCSC) != len(snp.observed[0]):
@@ -209,7 +218,23 @@ def isInRange(coord, start, end):
         return False
     return True
 
-def readDbSnps(file, start, end):
+def isInFilter(coord, filter):
+    for f in filter:
+        if f.chromStart <= coord and coord < f.chromEnd:
+            return True
+    return False
+
+def readFilter(file):
+    f = open(file, 'r')
+    regions = []
+    for line in f:
+        if re.search('tart', line):
+            continue
+        regions.append( Filter(line) )
+    f.close()
+    return regions
+
+def readDbSnps(file, start, end, filter):
     f = open(file, 'r')
     snps = []
     nummnp = 0
@@ -220,28 +245,29 @@ def readDbSnps(file, start, end):
         snp = Snp(line)
         #if snp.type == 'single' or snp.type == 'mnp':
         inrange = isInRange(snp.chromStart, start, end)
-        if inrange and snp.type == 'mnp':
+        infilter = isInFilter(snp.chromStart, filter)
+        if inrange and snp.type == 'mnp' and not infilter:
             #sys.stderr.write("mnp\n")
             subsnps = splitDbSnp(snp)
             nummnp += len(subsnps)
             for s in subsnps:
                 if isInRange(s.chromStart, start, end):
                     snps.append( s )
-        elif snp.isSnp and inrange:
+        elif snp.isSnp and inrange and not infilter:
             snps.append( snp )
     sys.stdout.write("TotalSnps\t%d\n" % (len(snps)))
     sys.stderr.write("numMNP: %d\n" %(nummnp))
 
     return snps
 
-def readPgSnp(file, start, end):
+def readPgSnp(file, start, end, filter):
     f = open(file, 'r')
     sample2snps = {}
     for line in f:
         if re.search(line, 'chromStart'):
             continue
         snp = PgSnp(line)
-        if not snp.isSnp or not isInRange(snp.chromStart, start, end):
+        if not snp.isSnp or not isInRange(snp.chromStart, start, end) or isInFilter(snp.chromStart, filter):
             continue
         if snp.sample not in sample2snps:
             sample2snps[snp.sample] = [snp]
@@ -250,7 +276,7 @@ def readPgSnp(file, start, end):
     f.close()
     return sample2snps
 
-def readRefSnps(file, filteredSamples, start, end):
+def readRefSnps(file, filteredSamples, start, end, filter):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
     snps = {}
@@ -267,7 +293,7 @@ def readRefSnps(file, filteredSamples, start, end):
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
                snp = SnpSite(site, name, ref)
-               if isInRange(snp.refstart, start, end):
+               if isInRange(snp.refstart, start, end) and not isInFilter(snp.refstart, filter):
                    snps[name].append( snp )
     return snps, samples
 
@@ -283,7 +309,7 @@ def checkPgAlleles(allele, pgsnp):
         return False
     return True
    
-def calcOverlapSnps(snps, reportedSnps, isPgSnp):#reportedSnps can be dbSnps or pgSnps
+def calcOverlapSnps(snps, reportedSnps, isPgSnp, fpFh):#reportedSnps can be dbSnps or pgSnps
     refTotal = len(snps)
     totalSnps = len(reportedSnps)
     tpPos = 0 #pass position check (coordinate check) 
@@ -292,6 +318,7 @@ def calcOverlapSnps(snps, reportedSnps, isPgSnp):#reportedSnps can be dbSnps or 
 
     for s in snps:
         flag = False
+        flagTp = False
         for i in xrange(currindex,totalSnps):
             dbs = reportedSnps[i].chromStart
             dbe = reportedSnps[i].chromEnd
@@ -308,6 +335,7 @@ def calcOverlapSnps(snps, reportedSnps, isPgSnp):#reportedSnps can be dbSnps or 
                 if (isPgSnp and checkPgAlleles(s.allele, reportedSnps[i]) ) or (not isPgSnp and checkAlleles(s.allele, s.refallele, reportedSnps[i])):
                 #if checkAlleles(s.allele, s.refallele, reportedSnps[i].alleles):
                     tp += 1
+                    flagTp = True
                     break
                 #else:
                 #    sys.stderr.write("%s\t%d\t%d\tourref: %s\tourAllele: %s\tncbi: %s\tucsc: %s\tobserved: %s\n" %(s.sampleName, s.refstart, dbs, s.refallele, s.allele, reportedSnps[i].refNCBI, reportedSnps[i].refUCSC, ','.join(reportedSnps[i].observed) ))
@@ -316,13 +344,16 @@ def calcOverlapSnps(snps, reportedSnps, isPgSnp):#reportedSnps can be dbSnps or 
                 break
         if flag == True: #pass position check
             tpPos += 1
+        if not flagTp and fpFh != None:
+            fpFh.write("%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\n" %(s.sampleName, s.refchrom, s.refstart, s.refstart+1, s.allele, 1, 0, 0))
 
     return tp, tpPos
 
-def getStats(dbsnps, refsnps, samples, sample2snps):
+def getStats(dbsnps, refsnps, samples, sample2snps, falsePosFile):
     dbsnps.sort()
     #print [ s.chromStart for s in dbsnps]
 
+    fpFh = open(falsePosFile, "w")
     totalSnps = len(dbsnps)
     sys.stdout.write("Sample\tTotalCalledSnps\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tFP\tPercentageFP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\n")
     for sample in samples:
@@ -331,7 +362,7 @@ def getStats(dbsnps, refsnps, samples, sample2snps):
         #sys.stderr.write("Done sorting, len %d\n" %(len(snps)))
         
         #Check against dbSnps
-        tp, tpPos = calcOverlapSnps(snps, dbsnps, False)
+        tp, tpPos = calcOverlapSnps(snps, dbsnps, False, fpFh)
         refTotal = len(snps)
         fp = refTotal - tp 
         if refTotal > 0:
@@ -344,7 +375,7 @@ def getStats(dbsnps, refsnps, samples, sample2snps):
         if sample in sample2snps:
             pgsnps = sample2snps[sample]
             pgsnps.sort()
-            pgTp, pgTpPos = calcOverlapSnps(snps, pgsnps, True)
+            pgTp, pgTpPos = calcOverlapSnps(snps, pgsnps, True, None)
             pgTotal = len(pgsnps)
             fn = pgTotal - pgTp
             if refTotal > 0 and pgTotal > 0:
@@ -356,6 +387,7 @@ def getStats(dbsnps, refsnps, samples, sample2snps):
         #check against snps that were reported specifically for the sample
 
         sys.stdout.write("\n")
+    fpFh.close()
 
 
 def initOptions( parser ):
@@ -364,6 +396,8 @@ def initOptions( parser ):
     parser.add_option('--pgSnp', dest='pgSnp', help="pgSnp file (snps found in each sample)")
     parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
     parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
+    parser.add_option('-f', '--filter', dest='filter', help='File contain regions to ignore in the stats (format:chr\\tchromStart\\tchromEnd). Will ignore all snps lie within this region. Default=no filtering')
+    parser.add_option('--falsePos', dest='fp', help='File to write FalsePositive Calls. Default = "fp.txt"')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -380,6 +414,14 @@ def checkOptions( args, options, parser ):
         options.filteredSamples = []
     if options.pgSnp and not os.path.exists(options.pgSnp):
         parser.error("pgSnp file %s does not exists." %(options.pgSnp))
+    if options.filter != None:
+        if not os.path.exists( options.filter ):
+            parser.error("Repeat file %s does not exist\n" %options.filter)
+        options.filter = readFilter( options.filter )
+    else:
+        options.filter = []
+    if options.fp == None:
+        options.fp = "fp.txt"
 
 def main():
     usage = ('Usage: %prog [options] snpStats_*.xml snp134dump.txt')
@@ -388,12 +430,12 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     
-    dbsnps = readDbSnps( args[1], options.startCoord, options.endCoord )
+    dbsnps = readDbSnps( args[1], options.startCoord, options.endCoord, options.filter )
     sample2snps = {}
     if options.pgSnp:
-        sample2snps = readPgSnp(options.pgSnp, options.startCoord, options.endCoord)
-    refsnps,samples = readRefSnps( args[0], options.filteredSamples, options.startCoord, options.endCoord )
-    getStats( dbsnps, refsnps, samples, sample2snps )
+        sample2snps = readPgSnp(options.pgSnp, options.startCoord, options.endCoord, options.filter)
+    refsnps,samples = readRefSnps( args[0], options.filteredSamples, options.startCoord, options.endCoord, options.filter )
+    getStats( dbsnps, refsnps, samples, sample2snps, options.fp )
 
     #Delete dbfile, refdbfile ...
 

@@ -10,6 +10,15 @@ from optparse import OptionParser
 import xml.etree.ElementTree as ET
 from sonLib.bioio import system
 
+class Filter():
+    def __init__(self, line):
+        items = line.strip().split('\t')
+        if len(items) < 3:
+            sys.stderr.write("Filter region has wrong format: %s\n" %line)
+        self.chrom = items[0]
+        self.chromStart = int(items[1])
+        self.chromEnd = int(items[2])
+
 class PgSnp():
     def __init__(self, line):
         items = line.strip().split('\t')
@@ -222,7 +231,23 @@ def isInRange(coord, start, end):
         return False
     return True
 
-def readDbSnps(file, cutoff, start, end):
+def isInFilter(coord, filter):
+    for f in filter:
+        if f.chromStart <= coord and coord < f.chromEnd:
+            return True
+    return False
+
+def readFilter(file):
+    f = open(file, 'r')
+    regions = []
+    for line in f:
+        if re.search('tart', line):
+            continue
+        regions.append( Filter(line) )
+    f.close()
+    return regions
+
+def readDbSnps(file, cutoff, start, end, filter):
     f = open(file, 'r')
     #indels = []
     insertions = []
@@ -236,7 +261,8 @@ def readDbSnps(file, cutoff, start, end):
             continue
         snp = Snp(line)
         inrange = isInRange(snp.chromStart, start, end)
-        if not inrange:
+        infilter = isInFilter( snp.chromStart, filter )
+        if not inrange or infilter:
             continue
         if snp.type == 'in-del':
             #indels.append(snp)
@@ -255,7 +281,7 @@ def readDbSnps(file, cutoff, start, end):
     #return indels, insertions, deletions
     return insertions, deletions
 
-def readPgSnp(file, cutoff, start, end):
+def readPgSnp(file, cutoff, start, end, filter):
     f = open(file, 'r')
     sample2ins = {}
     sample2dels = {}
@@ -263,7 +289,7 @@ def readPgSnp(file, cutoff, start, end):
         if re.search(line, 'chromStart'):
             continue
         snp = PgSnp(line)
-        if snp.isIndel != ""  and snp.alleleSize <= cutoff and isInRange(snp.chromStart, start, end):
+        if snp.isIndel != ""  and snp.alleleSize <= cutoff and isInRange(snp.chromStart, start, end) and not isInFilter(snp.chromStart, filter):
             if snp.isIndel == 'insertion':
                 if snp.sample not in sample2ins:
                     sample2ins[snp.sample] = [snp]
@@ -278,7 +304,7 @@ def readPgSnp(file, cutoff, start, end):
     f.close()
     return sample2ins, sample2dels
 
-def readRefSnps(file, filteredSamples, cutoff, start, end):
+def readRefSnps(file, filteredSamples, cutoff, start, end, filter):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
     ins = {}
@@ -297,7 +323,7 @@ def readRefSnps(file, filteredSamples, cutoff, start, end):
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
                 snp = SnpSite(site, name, ref)
-                if snp.length <= cutoff and snp.reflength <= cutoff and isInRange(snp.refstart, start, end):
+                if snp.length <= cutoff and snp.reflength <= cutoff and isInRange(snp.refstart, start, end) and not isInFilter(snp.refstart, filter):
                     if snp.reflength > 0 and snp.length == 0:
                         dels[name].append(snp)
                     elif snp.reflength == 0 and snp.length > 0:
@@ -435,6 +461,7 @@ def initOptions( parser ):
     parser.add_option('-c', '--cutoff', dest='cutoff', type='int', default = 10, help='Cutoff size of indels to be included in the analysis. Default = 10')
     parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
     parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
+    parser.add_option('-f', '--filter', dest='filter', help='File contain regions to ignore in the stats (format:chr\\tchromStart\\tchromEnd). Will ignore all snps lie within this region. Default=no filtering')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -451,6 +478,12 @@ def checkOptions( args, options, parser ):
         options.filteredSamples = []
     if options.pgSnp and not os.path.exists(options.pgSnp):
         parser.error("pgSnp file %s does not exists." %(options.pgSnp))
+    if options.filter != None:
+        if not os.path.exists( options.filter ):
+            parser.error("Repeat file %s does not exist\n" %options.filter)
+        options.filter = readFilter( options.filter )
+    else:
+        options.filter = []
 
 def main():
     usage = ('Usage: %prog [options] pathStats_*.xml snp134dump.txt')
@@ -459,12 +492,12 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     
-    dbinsertions, dbdeletions = readDbSnps( args[1], options.cutoff, options.startCoord, options.endCoord )
+    dbinsertions, dbdeletions = readDbSnps( args[1], options.cutoff, options.startCoord, options.endCoord, options.filter )
     sample2ins = {}
     sample2dels = {}
     if options.pgSnp:
-        sample2ins, sample2dels = readPgSnp(options.pgSnp, options.cutoff, options.startCoord, options.endCoord)
-    refins, refdels,samples = readRefSnps( args[0], options.filteredSamples, options.cutoff, options.startCoord, options.endCoord )
+        sample2ins, sample2dels = readPgSnp(options.pgSnp, options.cutoff, options.startCoord, options.endCoord, options.filter)
+    refins, refdels,samples = readRefSnps( args[0], options.filteredSamples, options.cutoff, options.startCoord, options.endCoord, options.filter )
     sys.stdout.write("Type\tSample\tTotalCalled\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\n")   
     #sys.stdout.write("Insertions:\n")
     getStats( dbinsertions, refins, samples, sample2ins, options.wobble, 'insertion')

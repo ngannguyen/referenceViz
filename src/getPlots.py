@@ -36,6 +36,7 @@ class Setup(Target):
         self.refstart = options.refstart
         self.refend = options.refend
         self.indelMaxSize = options.indelMaxSize
+        self.filter= options.filter
 
     def run(self):
          experiments = os.listdir(self.indir)
@@ -69,14 +70,14 @@ class Setup(Target):
                  self.addChildTarget( Snp(indir, outdir, pattern, filteredSamples) )
              if 'snpcheck' in self.analyses:
                  pattern = "snpStats.+hg19.*\.xml"
-                 self.addChildTarget( SnpCheck(indir, outdir, pattern, filteredSamples, self.dbsnp, self.pgsnp, self.refstart, self.refend) )
+                 self.addChildTarget( SnpCheck(indir, outdir, pattern, filteredSamples, self.dbsnp, self.pgsnp, self.refstart, self.refend, self.filter) )
              if 'indelcheck' in self.analyses:
                  pattern = "pathStats_hg19.xml"
-                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend) )
-                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend, self.filter) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend, self.filter) )
                  pattern = "pathStats_hg19_withAggregates.xml"
-                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend) )
-                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend, self.filter) )
+                 self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend, self.filter) )
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
              if 'indeltab' in self.analyses:
@@ -157,7 +158,7 @@ class Snp(Target):
             system("snpPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
 
 class SnpCheck(Target):
-    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, refstart, refend):
+    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, refstart, refend, filter):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
@@ -167,6 +168,7 @@ class SnpCheck(Target):
         self.pgsnp = pgsnp
         self.refstart = refstart
         self.refend = refend
+        self.filter = filter
 
     def run(self):
         files = getfiles(self.pattern, self.indir)
@@ -175,17 +177,29 @@ class SnpCheck(Target):
             outfile = os.path.join(self.outdir, "dbsnpCheck_%s.txt" %name)
             if self.pgsnp == None:
                 if self.refstart != None and self.refend != None:
-                    system("snpStats.py -s %d -e %d %s %s > %s" %(self.refstart, self.refend, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("snpStats.py -s %d -e %d %s %s > %s" %(self.refstart, self.refend, file, self.dbsnp, outfile))
+                    else:
+                        system("snpStats.py -f %s -s %d -e %d %s %s > %s" %(self.filter, self.refstart, self.refend, file, self.dbsnp, outfile))
                 else:
-                    system("snpStats.py %s %s > %s" %(file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("snpStats.py %s %s > %s" %(file, self.dbsnp, outfile))
+                    else:
+                        system("snpStats.py -f %s %s %s > %s" %(self.filter, file, self.dbsnp, outfile))
             else:
                 if self.refstart != None and self.refend != None:
-                    system("snpStats.py -s %d -e %d --pgSnp %s %s %s > %s" %(self.refstart, self.refend, self.pgsnp, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("snpStats.py -s %d -e %d --pgSnp %s %s %s > %s" %(self.refstart, self.refend, self.pgsnp, file, self.dbsnp, outfile))
+                    else:
+                        system("snpStats.py -f %s -s %d -e %d --pgSnp %s %s %s > %s" %(self.filter, self.refstart, self.refend, self.pgsnp, file, self.dbsnp, outfile))
                 else:
-                    system("snpStats.py --pgSnp %s %s %s > %s" %(self.pgsnp, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("snpStats.py --pgSnp %s %s %s > %s" %(self.pgsnp, file, self.dbsnp, outfile))
+                    else:
+                        system("snpStats.py -f %s --pgSnp %s %s %s > %s" %(self.filter, self.pgsnp, file, self.dbsnp, outfile))
 
 class IndelCheck(Target):
-    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, wobble, cutoff, refstart, refend):
+    def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, wobble, cutoff, refstart, refend, filter):
         Target.__init__(self, time=0.25)
         self.indir = indir
         self.outdir = outdir
@@ -197,6 +211,7 @@ class IndelCheck(Target):
         self.cutoff = cutoff
         self.refstart = refstart
         self.refend = refend
+        self.filter = filter
 
     def run(self):
         files = getfiles(self.pattern, self.indir)
@@ -205,14 +220,26 @@ class IndelCheck(Target):
             outfile = os.path.join(self.outdir, "indelCheck_%d_%s.txt" %(self.wobble, name))
             if self.pgsnp == None:
                 if self.refstart != None and self.refend != None:
-                    system("indelStats.py -s %d -e %d -c %d -w %d %s %s > %s" %(self.refstart, self.refend, self.cutoff, self.wobble, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("indelStats.py -s %d -e %d -c %d -w %d %s %s > %s" %(self.refstart, self.refend, self.cutoff, self.wobble, file, self.dbsnp, outfile))
+                    else:
+                        system("indelStats.py -f %s -s %d -e %d -c %d -w %d %s %s > %s" %(self.filter, self.refstart, self.refend, self.cutoff, self.wobble, file, self.dbsnp, outfile))
                 else:
-                    system("indelStats.py -c %d -w %d %s %s > %s" %(self.cutoff, self.wobble, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("indelStats.py -c %d -w %d %s %s > %s" %(self.cutoff, self.wobble, file, self.dbsnp, outfile))
+                    else:
+                        system("indelStats.py -f %s -c %d -w %d %s %s > %s" %(self.filter, self.cutoff, self.wobble, file, self.dbsnp, outfile))
             else:
                 if self.refstart != None and self.refend != None:
-                    system("indelStats.py -s %d -e %d -c %d -w %d --pgSnp %s %s %s > %s" %(self.refstart, self.refend, self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("indelStats.py -s %d -e %d -c %d -w %d --pgSnp %s %s %s > %s" %(self.refstart, self.refend, self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
+                    else:
+                        system("indelStats.py -f %s -s %d -e %d -c %d -w %d --pgSnp %s %s %s > %s" %(self.filter, self.refstart, self.refend, self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
                 else:
-                    system("indelStats.py -c %d -w %d --pgSnp %s %s %s > %s" %(self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
+                    if self.filter == None:
+                        system("indelStats.py -c %d -w %d --pgSnp %s %s %s > %s" %(self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
+                    else:
+                        system("indelStats.py -f %s -c %d -w %d --pgSnp %s %s %s > %s" %(self.filter, self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
 
 class IndelDist(Target):
     def __init__(self, indir, outdir, filteredSamples):
@@ -305,6 +332,7 @@ def initOptions( parser ):
                       The default string is "all", which means all the analyses included.')
     parser.add_option('--indelMaxSize', dest='indelMaxSize', type='int', default=10, help="Only indels with size <= than this cutoff are included in the comparisons with dbSnps indels. Default = 10")
     parser.add_option('-r', '--ref', dest='ref', help='hg19 sequence')
+    parser.add_option('-f', '--filter', dest='filter', help='File contain regions to ignore in the stats (format:chr\\tchromStart\\tchromEnd). Will ignore all snps lie within this region. Default=no filtering')
 
 def checkOptions( args, options, parser ):
     if not options.indir:
