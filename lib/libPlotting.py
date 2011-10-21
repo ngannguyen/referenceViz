@@ -230,3 +230,60 @@ def bihist( y1, y2, axes, bins, orientation, color=None ):
     #axes.set_ylim( ymin*1.1, ymax*1.1 )
     return ymin, ymax
 
+#============== LATEX =========
+def prettyInt( number ):
+    numstr = str( number )
+    prettyStr = ''
+    for i in range( len(numstr) ):
+        if i > 0 and (len(numstr) - i) %3 == 0:
+            prettyStr = prettyStr + ','
+        prettyStr = prettyStr + numstr[i]
+
+    return prettyStr
+
+def prettyFloat( num ):
+    if num == 0:
+        return "0"
+    else:
+        return "%.2e" %num
+
+def writeDocumentStart( f ):
+    f.write( "\\documentclass[11pt]{article}\n" )
+
+    f.write( "\\usepackage{epsfig}\n" )
+    f.write( "\\usepackage{multirow}\n" )
+    f.write( "\\usepackage{graphicx}\n" )
+    f.write( "\\usepackage{array}\n" )
+    f.write( "\\usepackage{color}\n" )
+    f.write( "\\usepackage{rotating}\n" )
+    f.write( "\\usepackage[table]{xcolor}\n" )
+    f.write( "\n" )
+
+    f.write( "\\newcommand{\\figref}[1]{Figure~\\ref{fig:#1}}\n" )
+    f.write( "\\newcommand{\\tabref}[1]{Table~\\ref{tab:#1}}\n" )
+    f.write( "\n" )
+
+    f.write("\\textwidth=6.5in\n")
+    f.write("\\textheight=9in\n")
+    f.write("\\oddsidemargin=0in\n")
+    f.write("\\evensidemargin=0in\n")
+    f.write("\\topmargin=0in\n")
+    f.write("\\topskip=0in\n")
+    f.write("\\headheight=0in\n")
+    f.write("\\headsep=0in\n")
+    f.write("\n")
+
+    f.write("\\begin{document}\n")
+    return
+
+def writeDocumentEnd( f ):
+    f.write( "\\end{document}\n" )
+
+def tableCloser(f, captionStr, label):
+    f.write("\\end{tabular}\n")
+    f.write("}\n")
+    f.write("\\caption{%s}\n" %captionStr)
+    f.write("\\end{center}\n")
+    f.write("\\label{%s}" %label)
+    f.write("\\end{table}\n\n")
+

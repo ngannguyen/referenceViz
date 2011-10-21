@@ -37,6 +37,20 @@ class Setup(Target):
             sample = samples[i]
             logger.info("Experiment %s, sample %s\n" %(exp, sample) )
             self.addChildTarget( RunExperiment(options, exp, sample) )
+        self.setFollowOnTarget( Plots(options.outdir, os.path.join(options.outdir, "plots"), options.cleanup) )
+
+class Plots(Target):
+    def __init__(self, indir, outdir, cleanup):
+        Target.__init__(self)
+        self.indir = indir
+        self.outdir = outdir
+        self.cleanup = cleanup
+
+    def run(self):
+        system("mappingPlot.py -i %s -o %s" %(self.indir, self.outdir))
+        for d in os.listdir(indir):
+            if d != 'plots':
+                system( "rm -Rf %s" %(os.path.join(self.indir, d)) )
 
 class RunExperiment(Target):
     """
@@ -586,9 +600,8 @@ class MergeResults(Target):
             return
         outfile = os.path.join(self.indir, "stats.txt")
         outfh = open(outfile, "w")
-        outfh.write("Name\tTotal\tFailure\tDuplicates\tMapped\tPairedInSequencing\tRead1\tRead2\tProperlyPaired\tWithItselfAndMateMapped\tSingletons\tMateMappedToDiffChr\tMateMappedToDiffChr(mapQ>=5)\t\
-                     UniquelyMapped\tWithItselfAndMateUniquelyMapped\tWithItselftAndMateUniquelyMappedAndProperlyPaired\tUniquelyMappedMateNotUniquelyMapped\tWithItselfAndMateNotUniquelyMapped\n")
-        totalcounts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        outfh.write("Name\tTotal\tDuplicates\tMapped\tPairedInSequencing\tRead1\tRead2\tProperlyPaired\tWithItselfAndMateMapped\tSingletons\tMateMappedToDiffChr\tMateMappedToDiffChr(mapQ>=5)\tUniquelyMapped\tWithItselfAndMateUniquelyMapped\tWithItselftAndMateUniquelyMappedAndProperlyPaired\tUniquelyMappedMateNotUniquelyMapped\tWithItselfAndMateNotUniquelyMapped\n")
+        totalcounts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for file in files:
             counts  = []
             f = open(file, 'r')
@@ -818,6 +831,7 @@ def initOptions( parser ):
     parser.add_option('--ignoreSolid', dest='ignoreSolid', action='store_true', default=False)
     parser.add_option('--bam', dest='bamFormat', action='store_true', default=False, help="Must specify if input files are in bam format. Otherwise it is assumed that input files are in fastq format")
     parser.add_option('--bwaRefIndex', dest='bwaRefIndex', help="Specify bweRef prefix if have already done the indexing for the reference")
+    parser.add_option('--cleanup', dest='cleanup', default=False, action="store_true", help="If specify, will remove all the alignment files. Only save plots & tex files.")
 
 def checkOptions( options, args, parser ):
     if len(args) == 0 and options.bwaRefIndex == None:

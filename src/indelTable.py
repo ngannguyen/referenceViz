@@ -4,7 +4,6 @@ import os, sys, re
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 
-
 def writeDocumentStart( f ):
     f.write( "\\documentclass[11pt]{article}\n" )
 

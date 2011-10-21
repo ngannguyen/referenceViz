@@ -371,7 +371,7 @@ def checkPgAlleles(refsnp, pgsnp, type):
         return True
     return False
 
-def calcDbIndelOverlap(snps, dbsnps, wobble, isPgSnp, type):#reportedSnps can be dbSnps or pgSnps
+def calcDbIndelOverlap(snps, dbsnps, wobble, isPgSnp, type, fpFh):#reportedSnps can be dbSnps or pgSnps
     refTotal = len(snps)
     totalSnps = len(dbsnps)
     tp = 0 
@@ -382,7 +382,7 @@ def calcDbIndelOverlap(snps, dbsnps, wobble, isPgSnp, type):#reportedSnps can be
 
     for s in snps: #each indel
         flag = False
-        #tpflag = False
+        flagTp = False
         #dbs = 0
         #dbe = 0
         #for i in xrange( totalSnps ):
@@ -402,7 +402,7 @@ def calcDbIndelOverlap(snps, dbsnps, wobble, isPgSnp, type):#reportedSnps can be
                 #print "\tfound it! %d, %d" %(s.refstart, dbs)
                 if (isPgSnp and checkPgAlleles(s, dbsnps[i], type) ) or (not isPgSnp and checkAlleles(s, dbsnps[i], type)):
                     tp += 1
-                    #tpflag = True
+                    flagTp = True
                     #if s.sampleName != 'panTro3':
                     #    dumpfh.write("%d\t%s\trefStart: %d,%d\tStart: %d,%d\tdbIndels, start: %d, length: %d\n" %(s.refstart - dbs, s.sampleName, s.refstart, s.reflength, s.start, s.length, dbs, dbe - dbs))
                     break
@@ -413,21 +413,24 @@ def calcDbIndelOverlap(snps, dbsnps, wobble, isPgSnp, type):#reportedSnps can be
                 break
         if flag == True: #pass position check
             tpPos += 1
+        if not flagTp and fpFh != None:
+            fpFh.write("%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n" %(type, s.sampleName, s.refchrom, s.refstart, s.refstart + s.reflength, s.length, 1, 0, 0))
         #else :
         #    dumpfh.write("%d\t%s\trefStart: %d,%d\tStart: %d,%d\tdbIndels, start: %d, length: %d\n" %(s.refstart - dbs, s.sampleName, s.refstart, s.reflength, s.start, s.length, dbs, dbe - dbs))
 
     return tp, tpPos
 
-def getStats(dbsnps, refsnps, samples, sample2snps, wobble, type):
+def getStats(dbsnps, refsnps, samples, sample2snps, wobble, type, falsePosFile):
     dbsnps.sort()
     #dbindels.sort()
 
     totalSnps = len(dbsnps)
+    fpFh = open(falsePosFile, "w")
     for sample in samples:
         snps = sorted( refsnps[sample] )
         
         #Check against dbSnps (Insertions or deletions)
-        tp, tpPos = calcDbIndelOverlap(snps, dbsnps, wobble, False, type)
+        tp, tpPos = calcDbIndelOverlap(snps, dbsnps, wobble, False, type, fpFh)
         #tp1, tpPos1 = calcDbIndelOverlap(snps, dbindels, wobble, False)
         #tp += tp1
         #tpPos += tpPos1
@@ -442,7 +445,7 @@ def getStats(dbsnps, refsnps, samples, sample2snps, wobble, type):
         if sample in sample2snps:
             pgsnps = sample2snps[sample]
             pgsnps.sort()
-            pgTp, pgTpPos = calcDbIndelOverlap(snps, pgsnps, wobble, True, type)
+            pgTp, pgTpPos = calcDbIndelOverlap(snps, pgsnps, wobble, True, type, None)
             pgTotal = len(pgsnps)
             fn = pgTotal - pgTp
             if refTotal > 0 and pgTotal > 0:
@@ -462,6 +465,7 @@ def initOptions( parser ):
     parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
     parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
     parser.add_option('-f', '--filter', dest='filter', help='File contain regions to ignore in the stats (format:chr\\tchromStart\\tchromEnd). Will ignore all snps lie within this region. Default=no filtering')
+    parser.add_option('--falsePos', dest='fp', help='File to write FalsePositive Calls. Default = "indelsFP.txt"')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -484,6 +488,8 @@ def checkOptions( args, options, parser ):
         options.filter = readFilter( options.filter )
     else:
         options.filter = []
+    if options.fp == None:
+        options.fp = "indelsFP.txt"
 
 def main():
     usage = ('Usage: %prog [options] pathStats_*.xml snp134dump.txt')
@@ -500,9 +506,9 @@ def main():
     refins, refdels,samples = readRefSnps( args[0], options.filteredSamples, options.cutoff, options.startCoord, options.endCoord, options.filter )
     sys.stdout.write("Type\tSample\tTotalCalled\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\n")   
     #sys.stdout.write("Insertions:\n")
-    getStats( dbinsertions, refins, samples, sample2ins, options.wobble, 'insertion')
+    getStats( dbinsertions, refins, samples, sample2ins, options.wobble, 'insertion', options.fp)
     #sys.stdout.write("\nDeletions:\n")
-    getStats( dbdeletions, refdels, samples, sample2dels, options.wobble, 'deletion' )
+    getStats( dbdeletions, refdels, samples, sample2dels, options.wobble, 'deletion', options.fp )
 
     #Delete dbfile, refdbfile ...
 
