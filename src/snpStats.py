@@ -411,7 +411,7 @@ def pgSnpOverlap(sample, snps, sample2snps, refTotal):
             #sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
             sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 100.0*pgTpPos/refTotal, pgTp, 100.0*pgTp/refTotal, fn, 100.0*fn/pgTotal))
         else:
-            sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 0.00, tp, 0.00, fn, 0.00))
+            sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 0.00, pgTp, 0.00, fn, 0.00))
 
 def getStats(dbsnps, refsnps, samples, sample2snps, sample2snpsPileup, falsePosFile):
     dbsnps.sort()
@@ -486,6 +486,7 @@ def main():
     
     dbsnps = readDbSnps( args[1], options.startCoord, options.endCoord, options.filter )
     sample2snps = {}
+    sample2snpsPileup = {}
     if options.pgSnp:
         sample2snps = readPgSnp(options.pgSnp, options.startCoord, options.endCoord, options.filter)
     if options.puSnp:
