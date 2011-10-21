@@ -255,13 +255,30 @@ def readDbSnps(file, cutoff, start, end, filter):
     numins = 0
     numdels = 0
     numindels = 0
+    i = 0
+    j = 0
 
     for line in f:
         if re.search('chromStart', line):
             continue
         snp = Snp(line)
         inrange = isInRange(snp.chromStart, start, end)
-        infilter = isInFilter( snp.chromStart, filter )
+        #infilter = isInFilter( snp.chromStart, filter )
+        infilter = False
+        if len(filter) > i:
+            i = j
+            filterReg = filter[i]
+            while filterReg.chromStart <= snp.chromStart:
+                if filterReg.chromStart <= snp.chromStart and snp.chromStart < filterReg.chromEnd:
+                    infilter = True
+                    break
+                if filterReg.chromStart < snp.chromStart:
+                    j += 1
+                i +=1
+                if i == len(filter):
+                    break
+                filterReg = filter[i]
+
         if not inrange or infilter:
             continue
         if snp.type == 'in-del':
@@ -285,11 +302,29 @@ def readPgSnp(file, cutoff, start, end, filter):
     f = open(file, 'r')
     sample2ins = {}
     sample2dels = {}
+    i = 0
+    j = 0
+
     for line in f:
         if re.search(line, 'chromStart'):
             continue
         snp = PgSnp(line)
-        if snp.isIndel != ""  and snp.alleleSize <= cutoff and isInRange(snp.chromStart, start, end) and not isInFilter(snp.chromStart, filter):
+
+        i = j
+        inFilter = False
+        filterReg = filter[i]
+        while filterReg.chromStart <= snp.chromStart:
+            if filterReg.chromStart <= snp.chromStart and snp.chromStart < filterReg.chromEnd:
+                inFilter = True
+                break
+            if filterReg.chromStart < snp.chromStart:
+                j += 1
+            i +=1
+            if i == len(filter):
+                break
+            filterReg = filter[i]
+
+        if snp.isIndel != ""  and snp.alleleSize <= cutoff and isInRange(snp.chromStart, start, end) and not inFilter:
             if snp.isIndel == 'insertion':
                 if snp.sample not in sample2ins:
                     sample2ins[snp.sample] = [snp]
