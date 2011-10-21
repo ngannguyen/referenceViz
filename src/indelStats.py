@@ -155,7 +155,7 @@ class Snp():
         self.func = items[14]
         self.locType = items[15]
         self.exceptions = items[17]
-        self.alleleFreqCount = int(items[20])
+        #self.alleleFreqCount = int(items[20])
         #self.alleles = items[21].rstrip(',')
         #self.alleleFreqs = items[23].rstrip(',')
         self.alleles = items[21].lower().rstrip(',').split(',')
