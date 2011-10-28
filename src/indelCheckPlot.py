@@ -200,9 +200,9 @@ def drawPlot(exps, options, outfile, type):
     #exporder = ['All', 'Filtered', 'No-repeats', 'Filtered', 'Filtered, No-repeats', 'Recurrent']
     exporder = ['All', 'Wobble', 'No-repeats', 'Wobble, No-repeats']
     if type == 'fn':
-        exporder = ['All', 'wobble']
+        exporder = ['All', 'Wobble']
     elif type == 'total':
-        exorder = ['All', 'No-repeats']
+        exporder = ['All', 'No-repeats']
     offset = 0.15
     for i, exp in enumerate(exporder):
         xdatai = [x + offset*i for x in xdata]

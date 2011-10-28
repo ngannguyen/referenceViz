@@ -146,7 +146,8 @@ def getStats(indir, dirs):
                 continue
 
             exp = Experiment(d, r)
-            if exp.ref == 'cactusRef' and exp.weight == 1: #HACK
+            #if exp.ref == 'cactusRef' and exp.weight == 1: #HACK
+            if exp.ref == 'cactusRef' and exp.weight == 8: #HACK
                 continue
 
             sumFile = os.path.join( rpath, 'summaryStats.txt' )
@@ -245,8 +246,63 @@ def getData(samples, exps, name):
                 sys.stderr.write('statistics for hg19 is 0.\n')
                 data[refname].append( 0 )
             else:
-                data[refname].append( (val - hg19val)/float(hg19val) )
+                data[refname].append( (val - hg19val)*100.0/float(hg19val) )
     
+    miny = float('inf')
+    maxy = float('-inf')
+    for ref in data:
+        currmin = min( data[ref] )
+        currmax = max( data[ref] )
+        if currmin < miny:
+            miny = currmin
+        if currmax > maxy:
+            maxy = currmax
+
+    return data, miny, maxy
+
+def getData2(samples, exps, names):
+    data = {} #key = , val = list of values cross samples
+    
+    for name in names:
+        data[name] = []
+        for sample in samples:
+            expList = exps[sample]
+            hg19exp = None
+            for e in expList:
+                if e.ref == 'hg19':
+                    hg19exp = e
+                    break
+
+            for e in expList:
+                refname = "%s%d" %(e.ref, e.weight)
+                if refname != 'cactusRef2':
+                    continue
+                
+                hg19val = 0
+                val = 0
+                if name == 'mapped':
+                    val = e.mapped
+                    hg19val = hg19exp.mapped
+                elif name == 'uniquelyMapped':
+                    val = e.uniquelyMapped
+                    hg19val = hg19exp.uniquelyMapped
+                elif name == 'properlyPaired':
+                    val = e.properlyPaired
+                    hg19val = hg19exp.properlyPaired
+                elif name == 'uniquelyMappedAndProperlyPaired':
+                    val = e.uniquelyMappedAndProperlyPaired
+                    hg19val = hg19exp.uniquelyMappedAndProperlyPaired
+                elif name == 'snps':
+                    val = e.snps
+                    hg19val = hg19exp.snps
+                
+                if hg19val == 0:
+                    sys.stderr.write('statistics for hg19 is 0.\n')
+                    data[refname].append( 0 )
+                else:
+                    data[name].append( (val - hg19val)*100.0/float(hg19val) )
+                break
+        
     miny = float('inf')
     maxy = float('-inf')
     for ref in data:
@@ -359,7 +415,7 @@ def drawSamplePlot(exps, options, outfile, type):
 def drawPlot(exps, options, outfile, type):
     options.out = outfile
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
-    axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
+    axes = fig.add_axes( [0.12, 0.14, 0.85, 0.8] )
 
     #Set title:
     titleDict = {'mapped':'Mapped reads', 'uniquelyMapped':'Uniquely Mapped Reads', 'properlyPaired':'Properly Paired Reads', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired Reads', 'snps':'Snps'}
@@ -390,22 +446,38 @@ def drawPlot(exps, options, outfile, type):
     #maxy = 0
     #offset = 0.075
     offset = 0.12
+    #if type != 'snps':
+    #    offset = 0
     #axes.set_yscale('log')
     scale = -1
     if miny > 1000:
         scale = len( str(int(miny)) ) - 1
+
+    #Draw line connecting the data for each sample (each bin):
+    binXdataList = [ [] for x in xdata ]
+    binYdataList = [ [] for x in xdata ]
     for i, ref in enumerate(refs):
         xdatai = [ x + offset*i for x in xdata ]
         ydata = ydataList[ref]
         if scale > 0:
             ydata = [ float(y)/10**scale for y in ydata ]
-        #miny = min( [miny, min(ydata)] )
-        #maxy = max( [maxy, max(ydata)] )
+        for j, x in enumerate(xdatai):
+            binXdataList[j].append(x)
+            binYdataList[j].append( ydata[j] )
+    for i in xrange( len(binXdataList) ):
+        axes.plot( binXdataList[i], binYdataList[i], color="#CCCCCC", linestyle='-', linewidth=0.005 )
+    
+    #Draw main plots:
+    for i, ref in enumerate(refs):
+        xdatai = [ x + offset*i for x in xdata ]
+        ydata = ydataList[ref]
+        if scale > 0:
+            ydata = [ float(y)/10**scale for y in ydata ]
         
         c += 1
         l = axes.plot( xdatai, ydata, color=colors[c], marker='.', markersize=16.0, linestyle='none')
         lines.append(l)
-
+    
     if scale > 0:
         miny = float(miny)/10**scale
         maxy = float(maxy)/10**scale
@@ -421,23 +493,19 @@ def drawPlot(exps, options, outfile, type):
     yrange = maxy - miny
     miny = miny - yrange*0.05
     maxy = maxy + yrange*0.2
-    #if miny < 0 and maxy >0:
-    #    m = max([abs(miny), abs(maxy)])
-    #    miny = -m
-    #    maxy = m
     
     #Draw vertical lines to separate each sample:
-    for i in xrange(1, len(samples)):
-        d = (1 - offset*len(refs))/2.0
-        x = [i - d, i - d]
-        y = [miny , maxy]
-        axes.plot(x,y, color="#CCCCCC", linewidth=0.005)
+    #for i in xrange(1, len(samples)):
+    #    d = (1 - offset*len(refs))/2.0
+    #    x = [i - d, i - d]
+    #    y = [miny , maxy]
+    #    axes.plot(x,y, color="#CCCCCC", linewidth=0.005)
     
     axes.set_xlim(xmin, xmax )
     axes.set_ylim( miny, maxy )
     libplot.editSpine( axes )
 
-    axes.set_xticks( [ i + offset*(len(refs)/2-1) for i in range(0, len(samples))] )
+    axes.set_xticks( [ i + offset*(len(refs)/2.0) for i in range(0, len(samples))] )
     axes.set_xticklabels( samples )
     for label in axes.xaxis.get_ticklabels():
         label.set_rotation(90)
@@ -456,12 +524,108 @@ def drawPlot(exps, options, outfile, type):
     legend._drawFrame = False
 
     axes.set_xlabel( 'Samples' )
-    axes.set_ylabel( 'Event counts' )
+    axes.set_ylabel( 'Percentage of mapping difference between consensus ref and GRCh37' )
     if scale > 0:
         axes.set_ylabel( 'Event counts (x%d)' %(10**scale) )
     #axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
     axes.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
     libplot.writeImage( fig, pdf, options )
+
+#============draw catusRef2:
+def drawRef2(exps, options, outfile):
+    options.out = outfile
+    fig, pdf = libplot.initImage( 8.0, 10.0, options )
+    axes = fig.add_axes( [0.12, 0.14, 0.85, 0.8] )
+
+    #Set title:
+    axes.set_title("Mapability of the consensus reference in comparison to GRCh37")
+    
+    sampleNhg19mapped = []
+    for sample in exps:
+        if sample == 'average':
+            continue
+        explist = exps[sample]
+        for e in explist:
+            if e.ref == 'hg19':
+                sampleNhg19mapped.append( (sample, e.total) )
+
+    sampleNhg19mapped = sorted( sampleNhg19mapped, key=lambda item: item[1], reverse=True )
+    samples = [ item[0] for item in sampleNhg19mapped]
+    samples.append( 'average' )
+
+    xdata = range( 0, len(samples) )
+    colors = libplot.getColors0()
+    c = -1
+    #c = 0
+    lines = []
+    #titleDict = {'mapped':'Mapped', 'uniquelyMapped':'Uniquely Mapped', 'properlyPaired':'Properly Paired', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired', 'snps':'Snp'}
+    titleDict = {'mapped':'Mapped', 'properlyPaired':'Properly Paired', 'uniquelyMapped':'Uniquely Mapped', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired'}
+    ydataList, miny, maxy = getData2(samples, exps, titleDict.keys())
+    ydataList, miny, maxy = getData2(samples, exps, titleDict.keys())
+    
+    #refs = sorted( ydataList.keys() )
+    offset = 0.12
+    scale = -1
+    if miny > 1000:
+        scale = len( str(int(miny)) ) - 1
+
+    linenames = []
+    for i, key in enumerate( ['mapped', 'properlyPaired', 'uniquelyMapped', 'uniquelyMappedAndProperlyPaired'] ):
+        xdatai = [ x + offset*i for x in xdata ]
+        ydata = ydataList[key]
+        if scale > 0:
+            ydata = [ float(y)/10**scale for y in ydata ]
+        
+        c += 1
+        l = axes.plot( xdatai, ydata, color=colors[c], marker='.', markersize=16.0, linestyle='none')
+        lines.append(l)
+        linenames.append( titleDict[key] )
+
+    if scale > 0:
+        miny = float(miny)/10**scale
+        maxy = float(maxy)/10**scale
+
+    #Draw horizontal line at y = 0:
+    xmin = -0.4
+    xmax = len(samples) - 1 + offset*len(linenames) + offset
+    axes.plot( [xmin, xmax], [0,0], color="#6B6B6B", linewidth=0.005)
+
+    fontP = FontProperties()
+    fontP.set_size('x-small')
+    
+    yrange = maxy - miny
+    miny = miny - yrange*0.05
+    maxy = maxy + yrange*0.2
+    
+    #Draw vertical lines to separate each sample:
+    for i in xrange(1, len(samples)):
+        d = (1 - offset*len(linenames))/2.0
+        x = [i - d, i - d]
+        y = [miny , maxy]
+        axes.plot(x,y, color="#CCCCCC", linewidth=0.005)
+    
+    axes.set_xlim(xmin, xmax )
+    axes.set_ylim( miny, maxy )
+    libplot.editSpine( axes )
+
+    axes.set_xticks( [ i + offset*(len(linenames)/2.0) for i in range(0, len(samples))] )
+    axes.set_xticklabels( samples )
+    for label in axes.xaxis.get_ticklabels():
+        label.set_rotation(90)
+    axes.xaxis.set_ticks_position( 'bottom' )
+    axes.yaxis.set_ticks_position( 'left' )
+    
+    legend = pyplot.legend( lines, linenames, numpoints=1, loc='best', prop=fontP)
+    legend._drawFrame = False
+
+    axes.set_xlabel( 'Samples' )
+    axes.set_ylabel( 'Percentage of mapping difference between consensus ref and GRCh37' ) #NEED TO DO
+    if scale > 0:
+        axes.set_ylabel( 'Event counts (x%d)' %(10**scale) )
+    #axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    axes.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    libplot.writeImage( fig, pdf, options )
+
 
 def drawPlots(options, outdir, exps):
     mappedFile = os.path.join(outdir, 'mappingStats-mapped')
@@ -481,6 +645,9 @@ def drawPlots(options, outdir, exps):
 
     file = os.path.join(outdir, "mappingStats-snpSingle")
     drawSamplePlot(exps, options, file, 'snps')
+
+    file = os.path.join(outdir, "mappingStats-consensusRef2")
+    drawRef2(exps, options, file)
 
 #================= LATEX TABLE ===============
 def tabheader(f, title):

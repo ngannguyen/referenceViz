@@ -147,12 +147,13 @@ def getColors0():
 
 def getColors1():
     colors = ["#E41A1C", #ref/hg19
-              "#377EB8", "#4DAF4A", "#984EA3", #apd, cox, dbb
+              "#377EB8", "#000080", "#984EA3", #apd, cox, dbb
               "#FF7F00", "#FFFF33", "#A65628", #mann, mcf, qbl
               "#F781BF", #ssto
-              "#C2E699", "#78C679", "#238443", #NA12878, NA12891, NA12892
+              "#38B0DE",#venter
+              "#C2E699", "#238443", #NA12878, NA12891, NA12892
               "#FED98E", "#FE9929", "#CC4C02", #NA19239, NA19238, NA19240
-              "#7B68EE", "#6600FF", "#AA6600", "#B5A642", "#BC8F8F", "#C76114",
+              "#7B68EE", "#551A8B", "#3D3D3D", "#B5A642", "#BC8F8F", "#C76114",
               "#999999"] #panTro
    
     return colors

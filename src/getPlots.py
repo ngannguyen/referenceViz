@@ -111,9 +111,18 @@ class Setup(Target):
                  self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend, self.filter) )
                  self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend, self.filter) )
              
+             if 'indelcheckplot' in self.analyses:
+                 self.addChildTarget( IndelCheckPlot(indir, outdir) )
+             
+             if 'snpcheckplot' in self.analyses:
+                 self.addChildTarget( SnpCheckPlot(indir, outdir) )
+
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
-             
+
+             if 'indel' in self.analyses:
+                 self.addChildTarget( Indel(indir, outdir, filteredSamples) )
+
              if 'indeltab' in self.analyses:
                  pathPatterns = [ "pathStats_[^_]+\.xml", "pathStats_ignoreAdjacencies_[^_]+\.xml" ]
                  snpPatterns = ["snpStats_[^_]+\.xml", "snpStats_[^_]+_recurrent\.xml", "snpStats_filtered_[^_]+\.xml", "snpStats_filtered_[^_]+_recurrent\.xml"]
@@ -122,6 +131,7 @@ class Setup(Target):
                          self.addChildTarget( IndelTab(indir, outdir, self.pdflatex, filteredSamples, p1, p2) )
              if 'cnv' in self.analyses:
                  self.addChildTarget( Cnv(indir, outdir, filteredSamples) )
+             
         #Cleanup:
         #self.setFollowOnTarget( Cleanup(self.output) )
 
@@ -199,6 +209,24 @@ class Snp(Target):
         filesStr = " ".join(files)
         if len(files) >=1:
             system("snpPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
+
+class SnpCheckPlot(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time=0.25)
+        self.indir = indir
+        self.outdir = outdir
+
+    def run(self):
+        system("snpCheckPlot.py --indir %s --outdir %s" %(self.indir, self.outdir))
+
+class IndelCheckPlot(Target):
+    def __init__(self, indir, outdir):
+        Target.__init__(self, time=0.25)
+        self.indir = indir
+        self.outdir = outdir
+
+    def run(self):
+        system("indelCheckPlot.py --indir %s --outdir %s" %(self.indir, self.outdir))
 
 class SnpCheck(Target):
     def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, refstart, refend, filter, pileupSnp):
@@ -295,6 +323,21 @@ class IndelCheck(Target):
                         else:
                             system("indelStats.py -f %s -c %d -w %d --pgSnp %s %s %s > %s" %(self.filter, self.cutoff, self.wobble, self.pgsnp, file, self.dbsnp, outfile))
 
+class Indel(Target):
+    def __init__(self, indir, outdir, filteredSamples):
+        Target.__init__(self, time=0.25)
+        self.indir = indir
+        self.outdir = outdir
+        self.filteredSamples = filteredSamples
+
+    def run(self):
+        pattern = "pathStats_[^_]+_withAggregates.xml"
+        files = getfiles(pattern, self.indir)
+        filesStr = " ".join(files)
+
+        if len(files) >=1:
+            system("indelPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
+
 class IndelDist(Target):
     def __init__(self, indir, outdir, filteredSamples):
         Target.__init__(self, time = 0.25)
@@ -390,7 +433,7 @@ def initOptions( parser ):
     parser.add_option('--pgindel', dest='pgindel', help='pgSnps indels file') 
     parser.add_option('-a', '--analyses', dest='analyses', default='all', \
                       help='Comma separated string of different analyses to perform.\n\
-                      Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,all].\n\
+                      Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,snpcheckplot,indelcheckplot,indel,all].\n\
                       The default string is "all", which means all the analyses included.')
     parser.add_option('--indelMaxSize', dest='indelMaxSize', type='int', default=10, help="Only indels with size <= than this cutoff are included in the comparisons with dbSnps indels. Default = 10")
     parser.add_option('-r', '--ref', dest='ref', help='hg19 sequence')
@@ -411,9 +454,9 @@ def checkOptions( args, options, parser ):
     if not os.path.exists(options.pgindel):
         parser.error('pgsnp indel file does not exist\n')
     if re.search('all', options.analyses):
-        options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck'
+        options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,indelcheckplot,snpcheckplot,indel'
     options.analyses = (options.analyses).split(',')
-    alist = ['contiguity', 'coverage', 'n50', 'snp', 'indeldist', 'indeltab', 'cnv', 'snpcheck', 'indelcheck']
+    alist = ['contiguity', 'coverage', 'n50', 'snp', 'indeldist', 'indeltab', 'cnv', 'snpcheck', 'indelcheck', 'indelcheckplot', 'snpcheckplot', 'indel']
     
     options.refstart = None
     options.refend = None

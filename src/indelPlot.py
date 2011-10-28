@@ -155,7 +155,7 @@ def drawPlot( options, samples1, samples2, type ):
     ax2.set_xlabel( 'Samples' )
     title = 'Deletions'
     #if type == 'insertion':
-    if type == 'deletion':#this is because benedict's definition of deletion is opposite of dbsnp definition of deletion
+    if type == 'insertion':
         ax2.set_ylabel( 'Insertion per site' )
         title = 'Insertions'
     else:

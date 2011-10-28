@@ -72,8 +72,8 @@ def tab( f, samplesList, sampleNames ):
             numNonLinearOpsPerAlignedBase = -1
             for sample in samplesList[altColor]:
                 if sample.attrib['sampleName'] == s:
-                    numDels = int( sample.attrib['totalDeletion'] )
-                    numDelsPerAlignedBase = float( sample.attrib['totalDeletionPerAlignedBase'] )
+                    numDels = int( sample.attrib['totalInsertion'] )
+                    numDelsPerAlignedBase = float( sample.attrib['totalInsertionPerAlignedBase'] )
                     numDelsPerAlignedBase = prettyFloat(numDelsPerAlignedBase)
 
                     #numNonLinearOps = int(sample.attrib['totalIntraJoin']) + int(sample.attrib['totalInterJoin'])
@@ -95,11 +95,11 @@ def tab( f, samplesList, sampleNames ):
                     break
            
             if altColor == 1:
-                f.write("\\multirow{2}{*}{%s} &\\cellcolor[gray]{0.9} %s & \\cellcolor[gray]{0.9} %d (%s) & \\cellcolor[gray]{0.9} %d (%s) & \\cellcolor[gray]{0.9} %d (%s) \\\\\n" % \
-                        ( libplot.properName(s), libplot.properName(refname2), numDels, numDelsPerAlignedBase, numNonLinearOps, numNonLinearOpsPerAlignedBase, numSnps, numSnpsPerAlignedBase))
+                f.write("\\multirow{2}{*}{%s} &\\cellcolor[gray]{0.9} %s & \\cellcolor[gray]{0.9} %d (%s) & \\cellcolor[gray]{0.9} %d & \\cellcolor[gray]{0.9} %d (%s) \\\\\n" % \
+                        ( libplot.properName(s), libplot.properName(refname2), numDels, numDelsPerAlignedBase, numNonLinearOps, numSnps, numSnpsPerAlignedBase))
             else:
-                f.write("& %s & %d (%s) & %d (%s) & %d (%s) \\\\\n" %\
-                        (libplot.properName(refname1), numDels, numDelsPerAlignedBase, numNonLinearOps, numNonLinearOpsPerAlignedBase, numSnps, numSnpsPerAlignedBase))
+                f.write("& %s & %d (%s) & %d & %d (%s) \\\\\n" %\
+                        (libplot.properName(refname1), numDels, numDelsPerAlignedBase, numNonLinearOps, numSnps, numSnpsPerAlignedBase))
                 f.write("\\hline\n\n")
             #altColor = 1 - altColor
     #f.write("\\hline\n\n")

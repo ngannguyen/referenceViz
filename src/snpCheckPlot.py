@@ -19,7 +19,7 @@ from matplotlib.font_manager import FontProperties
 class Sample():
     def __init__( self, line ):
         items = line.strip().split('\t')
-        if len(items) < 15:
+        #if len(items) < 15:
             #print line
             #print len(items)
         self.name = items[0]
@@ -113,12 +113,12 @@ def getSamplesOrder(samples, type):
     for name in samples:
         if name == 'aggregate' or name == 'panTro3' or name == 'reference':
             continue
-        if type == 'tp':
+        if type == 'tp' or type == 'tpfn':
             nameNstat.append( (name, samples[name].tp) )
         elif type == 'fn':
             nameNstat.append( (name, samples[name].fn) )
             rv=False
-        elif type == 'total':
+        elif type == 'total' or type == 'total2':
             nameNstat.append( (name, samples[name].total) )
 
     nameNstat = sorted(nameNstat, key=lambda item: item[1], reverse=rv)
@@ -128,9 +128,20 @@ def getSamplesOrder(samples, type):
     #sortedsamples.append('panTro3')
     return sortedsamples
 
-def getData(samples, exps, type):
+def getData(samples, exps, type, expnames):
     data = {} #key = expname, val = list of values cross samples
+    if type == 'tpfn':
+        tpdata,tpmin, tpmax = getData(samples, exps, 'tp', expnames)
+        fndata,fnmin, fnmax = getData(samples, exps, 'fn', expnames)
+        for exp in tpdata:
+            data["%s.tp" %exp] = tpdata[exp]
+        for exp in fndata:
+            data["%s.fn" %exp] = fndata[exp]
+        return data, min([tpmin, fnmin]), max([tpmax, fnmax])
+        
     for expname in exps:
+        if expname not in expnames:
+            continue
         data[expname] = []
         currsamples = exps[expname]
         for s in samples:
@@ -145,7 +156,7 @@ def getData(samples, exps, type):
                 data[expname].append( sample.tp )
             elif type == 'fn':
                 data[expname].append( sample.fn )
-            elif type == 'total':
+            elif type == 'total' or type == 'total2':
                 data[expname].append( sample.total )
     miny = float('inf')
     maxy = float('-inf')
@@ -157,14 +168,15 @@ def getData(samples, exps, type):
 def drawPlot(exps, options, outfile, type):
     options.out = outfile
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
-    axes = fig.add_axes( [0.12, 0.13, 0.85, 0.8] )
+    axes = fig.add_axes( [0.12, 0.18, 0.85, 0.75] )
 
     #Set title:
-    titleDict = {'tp':'Snps confirmed by dbSNP', 'fn':'False Negative', 'total':'Total Snps Called'}
+    titleDict = {'tp':'Snps confirmed by dbSNP', 'fn':'False Negative', 'total':'Total Snps Called', 'total2':'Total Snps Called', 'tpfn':''}
     axes.set_title( titleDict[type] )
     if 'All' not in exps:
         return
     samples = getSamplesOrder( exps['All'], type ) 
+    print samples
     if len( samples ) < 1:
         return
     
@@ -178,8 +190,14 @@ def drawPlot(exps, options, outfile, type):
     colors = libplot.getColors0()
     c = -1
     lines = []
-    ydataList, ymin, ymax = getData(samples, exps, type)
     
+    #exporder = ['All', 'Filtered', 'No-repeats', 'Filtered, No-repeats', 'Recurrent']
+    exporder = ['All', 'Recurrent', 'No-repeats', 'Filtered', 'Filtered, No-repeats']
+    if type == 'total2' or type == 'tpfn':
+        exporder = ['All', 'Recurrent']
+    
+    ydataList, ymin, ymax = getData(samples, exps, type, exporder)
+     
     scale = -1
     if ymin > 1000:
         scale = len( str(int(ymin)) ) -1
@@ -187,17 +205,23 @@ def drawPlot(exps, options, outfile, type):
         for exp in ydataList:
             ydataList[exp] = [ float(y)/10**scale for y in ydataList[exp]]
     
-    #exporder = ['All', 'Filtered', 'No-repeats', 'Filtered, No-repeats', 'Recurrent']
-    exporder = ['All', 'Recurrent', 'No-repeats', 'Filtered', 'Filtered, No-repeats']
     offset = 0.15
     for i, exp in enumerate(exporder):
-        xdatai = [x + offset*i for x in xdata]
-        ydata = ydataList[exp]
-        #print xdatai
-        #print ydata
-        c += 1
-        l = axes.plot(xdatai, ydata, color=colors[c], marker='.', markersize=10.0, linestyle='none')
-        lines.append(l)
+        if type == 'tpfn':
+            for j, t in enumerate(['tp', 'fn']):
+                if t == 'tp':
+                    xdatai = [x + offset*(i*2+j) for x in xdata]
+                else:
+                    xdatai = [x + offset*(i*2+j) for x in xdata[: len(xdata) -2] ]
+                ydata = ydataList["%s.%s" %(exp,t)]
+                c += 1
+                lines.append(axes.plot(xdatai, ydata, color=colors[c], marker='.', markersize=10.0, linestyle='none'))
+        else:
+            xdatai = [x + offset*i for x in xdata]
+            ydata = ydataList[exp]
+            c += 1
+            l = axes.plot(xdatai, ydata, color=colors[c], marker='.', markersize=10.0, linestyle='none')
+            lines.append(l)
 
     xmin = -0.4
     xmax = len(samples) - 1 + offset*len(exps) + offset*3
@@ -226,11 +250,14 @@ def drawPlot(exps, options, outfile, type):
     axes.set_xticks( [ i + offset*(len(exps)/2-1) for i in range(0, len(samples))] )
     axes.set_xticklabels( [ libplot.properName(s) for s in samples] )
     for label in axes.xaxis.get_ticklabels():
-        label.set_rotation(90)
+        label.set_rotation(75)
     axes.xaxis.set_ticks_position( 'bottom' )
     axes.yaxis.set_ticks_position( 'left' )
-    
-    legend = pyplot.legend( lines, exporder, numpoints=1, loc='best', prop=fontP)
+   
+    if type == 'tpfn':
+        legend = pyplot.legend( lines, ['All, TP','All, FN','Recurrent, TP','Recurrent, FN'], numpoints=1, loc='best', prop=fontP)
+    else:
+        legend = pyplot.legend( lines, exporder, numpoints=1, loc='best', prop=fontP)
     legend._drawFrame = False
 
     axes.set_xlabel( 'Samples' )
@@ -254,6 +281,12 @@ def drawPlots( options, exps ):
 
     totalfile = os.path.join( options.outdir, 'dbsnpCheck_total' )
     drawPlot(exps, options, totalfile, 'total')
+
+    total2file = os.path.join( options.outdir, 'dbsnpCheck_total2' )
+    drawPlot(exps, options, total2file, 'total2')
+
+    tpfnfile = os.path.join( options.outdir, 'dbsnpCheck_TPFN' )
+    drawPlot(exps, options, tpfnfile, 'tpfn')
 
 def main():
     usage = ('Usage: %prog [options] file1.xml file2.xml\n\n')

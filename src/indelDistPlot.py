@@ -111,9 +111,11 @@ def drawData( axesList, samples, samplesPerPlot, options ):
             sample = samples[j]
             sampleNames.append( sample.attrib[ 'sampleName' ] )
             insDist = [int(val) for val in sample.attrib[ 'insertionSizeDistribution' ].split()]
-            insXdata, insYdata = getFreq( insDist, options.xlogscale, options.ylogscale )
+            #insXdata, insYdata = getFreq( insDist, options.xlogscale, options.ylogscale )
+            insXdata, insYdata = getFreq( insDist, True, True )
             delDist = [int(val) for val in sample.attrib[ 'deletionSizeDistribution' ].split()]
-            delXdata, delYdata = getFreq( delDist, options.xlogscale, options.ylogscale )
+            #delXdata, delYdata = getFreq( delDist, options.xlogscale, options.ylogscale )
+            delXdata, delYdata = getFreq( delDist, True, True )
             
             c += 1
             il = insAxes.plot( insXdata, insYdata, color=colors[c] )
@@ -133,22 +135,22 @@ def drawData( axesList, samples, samplesPerPlot, options ):
         
     for i in range( len(axesList) ):
         axes = axesList[ i ]
-        #if options.xlogscale == "true":
-        #    axes.set_xscale('log', basex=2)
-        #if options.ylogscale == "true":
-        #    axes.set_yscale('log', basey=2)
+        if options.xlogscale == "true":
+            axes.set_xscale('log')
+        if options.ylogscale == "true":
+            axes.set_yscale('log')
         libplot.editSpine( axes )
         
-        
-        if options.xlogscale == "true":
-            axes.set_xlabel('Log 2 of length (bp)', size = textsize)
-        else:
-            axes.set_xlabel('Length (bp)', size = textsize)
-        
-        if options.ylogscale == "true":
-            axes.set_ylabel('Log 2 of count', size = textsize)
-        else:
-            axes.set_ylabel('Count', size = textsize)
+        axes.set_xlabel('Length (bp)', size = textsize)
+        axes.set_ylabel('Count', size = textsize)
+        #if options.xlogscale == "true":
+        #    axes.set_xlabel('Log 2 of length (bp)', size = textsize)
+        #else:
+        #    axes.set_xlabel('Length (bp)', size = textsize)
+        #if options.ylogscale == "true":
+        #    axes.set_ylabel('Log 2 of count', size = textsize)
+        #else:
+        #    axes.set_ylabel('Count', size = textsize)
 
         #Legend
         legend = axes.legend( linesDict[ i ], [ libplot.properName(n) for n in labelsDict[ i ]], 'upper right', ncol=3 )

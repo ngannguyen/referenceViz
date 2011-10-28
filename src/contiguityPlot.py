@@ -316,9 +316,9 @@ def drawContiguityPlot( options, stats ):
     
     if options.includeCov:
         options.out = options.out + "_incCov"
-        #options.ycutoff = 0.7 #HACK
-    #else:#HACK
-        #options.ycutoff = 0.95 #HACK
+        options.ycutoff = 0.7 #HACK
+    else:#HACK
+        options.ycutoff = 0.95 #HACK
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     axes = libplot.setAxes( fig )
     
