@@ -61,7 +61,7 @@ def getSample( stats, name ):
 
 def setAxisLimits( axes, ycutoff ):
     axes.set_xscale('log')
-    axes.set_ylim( ycutoff, 1.001 )
+    axes.set_ylim( ycutoff, 1.002 )
 
 def drawLegend( axes, lines, sampleNames, options ):
     fontP = FontProperties()
@@ -71,7 +71,7 @@ def drawLegend( axes, lines, sampleNames, options ):
 
     #legend = pyplot.legend( lines, sampleNames, numpoints = 1, prop= fontP, loc="best", bbox_to_anchor=(1, 0.5))
     if not options.legendElements:
-        legend = pyplot.legend( lines, sampleNames, prop= fontP, loc="best", bbox_to_anchor=(1,0.5))
+        legend = pyplot.legend( lines, [ libplot.properName(n) for n in sampleNames ], prop= fontP, loc="best", bbox_to_anchor=(1,0.5))
         legend._drawFrame=False
     elif len(lines) == len(options.legendElements):
         legend = pyplot.legend( lines, options.legendElements, prop= fontP, loc="best", bbox_to_anchor=(1,0.5) )
@@ -94,9 +94,13 @@ def drawData( axes, stats, options ):
     colorindex = -1
     lines = []
     sampleNames = []
+    ymin = float('inf')
+    ref = ''
 
     for sample in stats:
         sampleNames.append(sample.name)
+        if ref == '':
+            ref = sample.reference
         xdata = []
         ydata = []
         for bucket in sample:
@@ -108,9 +112,10 @@ def drawData( axes, stats, options ):
         
         #if not dash:
         #    colorindex += 1
-        colorindex +=1
         #if colorindex == 1:
         #    colorindex += 1
+        colorindex +=1
+        ymin = min([ymin, min(ydata)])
 
         l = axes.plot( xdata, ydata, color=colors[colorindex], linewidth=1 )
         #l = axes.plot( xdata, ydata, color=colors[colorindex], linestyle=styles[dash], linewidth=0.5 )
@@ -119,10 +124,13 @@ def drawData( axes, stats, options ):
         #dash = not dash
     
     libplot.editSpine( axes )
-    axes.set_title(options.title)
+    title = options.title
+    if ref != '':
+        title += ', %s' % ref
+    axes.set_title(title)
     pyplot.xlabel("Distance")
     pyplot.ylabel("Correct proportion")
-    return lines, sampleNames
+    return lines, sampleNames, ymin
 
 def drawAggData( axes, data, sortedIndex, xmin, xmax, cutoff, nbins=10 ):
     data = sorted( data, key=lambda point:point[sortedIndex] )
@@ -196,7 +204,9 @@ def drawCompareData( axesList, xstats, ystats, options ):
     sampleNames = []
     p0axes = axesList[0] #plot 0 axes (see def 'setCompareAxes')
     aggData = [] #data points (buckets) of all samples
-    
+   
+    minval = float('inf')
+
     for xsample in xstats:
         ysample = getSample( ystats, xsample.name )
         if ysample is None:
@@ -224,28 +234,37 @@ def drawCompareData( axesList, xstats, ystats, options ):
         lines.append( l )
         sampleNames.append( xsample.name )
         aggData.extend( data )
+        minval = min( [min(x2data), min(y2data)] )
 
     #Draw the y=x line
     x = [0, 1]
     y = [0, 1]
     p0axes.plot(x, y, color="#919191")
 
+    fontP = FontProperties()
+    fontP.set_size('small')
+    
     libplot.editSpine( p0axes )
     p0axes.set_title(options.title)
-    p0axes.set_xlabel(xstats.refname)
-    p0axes.set_ylabel(ystats.refname)
+    p0axes.set_xlabel( libplot.properName(xstats.refname) )
+    p0axes.set_ylabel( libplot.properName(ystats.refname) )
     libplot.setTicks( p0axes )
-    
+    for l in p0axes.xaxis.get_ticklabels():
+        l.set_fontsize('small')
+    for l in p0axes.yaxis.get_ticklabels():
+        l.set_fontsize('small')
+
     #legend:
-    fontP = FontProperties()
-    fontP.set_size('xx-small')
-    legend = p0axes.legend( lines, sampleNames, 'lower right', numpoints = 1, prop=fontP, ncol = 2)
+    legend = p0axes.legend( lines, [ libplot.properName(n) for n in sampleNames], 'lower right', numpoints = 1, prop=fontP, ncol = 2)
     legend._drawFrame = False
     
     #p0axes.set_xlim( -0.005, 1.005 )
     #p0axes.set_ylim( -0.005, 1.005 )
-    p0axes.set_xlim( options.ycutoff, 1 + (1 - options.ycutoff)*0.01 )
-    p0axes.set_ylim( options.ycutoff, 1 + (1 - options.ycutoff)*0.01 )
+    ycutoff = minval
+    if options.ycutoff:
+        ycutoff = options.ycutoff
+    p0axes.set_xlim( ycutoff - (1-ycutoff)*0.02, 1 + (1 - ycutoff)*0.01 )
+    p0axes.set_ylim( ycutoff - (1-ycutoff)*0.02, 1 + (1 - ycutoff)*0.01 )
    
     #box = p0axes.get_position()
     #p0axes.set_position([box.x0, box.y0, box.width * 0.8, box.height * 0.8])
@@ -255,10 +274,10 @@ def drawCompareData( axesList, xstats, ystats, options ):
     #DRAW AGGREGATE DATA (plot 1 and plot 2):
     nbins = 20
     p1axes = axesList[1]
-    y1min, y1max = drawAggData( p1axes, aggData, 0, 0, 1, options.ycutoff, nbins )
+    y1min, y1max = drawAggData( p1axes, aggData, 0, 0, 1, ycutoff, nbins )
     y1lim = max( abs(y1min), abs(y1max) )
     p1axes.set_ylim( -y1lim*1.1, y1lim*1.1 )
-    p1axes.set_xlim( options.ycutoff, 1 + (1-options.ycutoff)*0.01 )
+    p1axes.set_xlim( ycutoff - (1-ycutoff)*0.02, 1 + (1-ycutoff)*0.01 )
     #p1axes.set_ylim( y1min*1.1, y1max*1.1 )
     for loc, spine in p1axes.spines.iteritems():
         if loc == 'left':
@@ -268,16 +287,14 @@ def drawCompareData( axesList, xstats, ystats, options ):
     p1axes.xaxis.set_major_locator( NullLocator() )
     p1axes.xaxis.set_major_formatter( NullFormatter() )
     p1axes.yaxis.set_ticks([-y1lim, 0, y1lim])
-    #p1axes.yaxis.set_ticklabels([-y1lim, 0, y1lim])
     for l in p1axes.yaxis.get_ticklabels():
-        l.fontproperties = fontP
-    #p1axes.tick_params( axis='y', labelsize='small')
+        l.set_fontsize('small')
 
     p2axes = axesList[2]
-    x2min, x2max = drawAggData( p2axes, aggData, 1, 0, 1, options.ycutoff, nbins )
+    x2min, x2max = drawAggData( p2axes, aggData, 1, 0, 1, ycutoff, nbins )
     x2lim = max( abs(x2min), abs(x2max) )
     p2axes.set_xlim( -x2lim*1.1, x2lim*1.1 )
-    p2axes.set_ylim( options.ycutoff, 1 + (1- options.ycutoff)*0.01 )
+    p2axes.set_ylim( ycutoff - (1-ycutoff)*0.02, 1 + (1- ycutoff)*0.01 )
     #p2axes.set_xlim( x2min*1.1, x2max*1.1 )
     for loc, spine in p2axes.spines.iteritems():
         if loc == 'bottom':
@@ -288,7 +305,7 @@ def drawCompareData( axesList, xstats, ystats, options ):
     p2axes.yaxis.set_major_formatter( NullFormatter() )
     p2axes.xaxis.set_ticks([-x2lim, 0, x2lim])
     for l in p2axes.xaxis.get_ticklabels():
-        l.fontproperties = fontP
+        l.set_fontsize('small')
         l.set_rotation( 45 )
     return
 
@@ -296,14 +313,21 @@ def drawCompareData( axesList, xstats, ystats, options ):
 def drawContiguityPlot( options, stats ):
     #options.out = os.path.join(options.outdir, "contiguity_" + stats.refname) #name of output file
     options.out = os.path.join(options.outdir, options.exp + "_" + stats.refname) #name of output file
+    
     if options.includeCov:
         options.out = options.out + "_incCov"
+        #options.ycutoff = 0.7 #HACK
+    #else:#HACK
+        #options.ycutoff = 0.95 #HACK
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     axes = libplot.setAxes( fig )
     
-    lines, sampleNames = drawData( axes, stats, options )
+    lines, sampleNames, ymin = drawData( axes, stats, options )
     drawLegend( axes, lines, sampleNames, options )
-    setAxisLimits( axes, options.ycutoff )
+    if options.ycutoff:
+        setAxisLimits( axes, options.ycutoff )
+    else:
+        setAxisLimits( axes, ymin*0.98 )
     libplot.setTicks( axes )
 
     libplot.writeImage( fig, pdf, options )
@@ -316,10 +340,10 @@ def setCompareAxes( fig ):
     Plot 2: To the right of plot 1, shows frequencies of data points that lie on the left and right the y=x axis
     """
     axesList = []
-    axleft = 0.1
-    axright = 0.98
+    axleft = 0.12
+    axright = 0.88
     axwidth = axright - axleft
-    axbottom = 0.08
+    axbottom = 0.1
     axtop = 0.95
     axheight = axtop - axbottom
     margin = 0.07 #space between plots
@@ -375,11 +399,11 @@ def initOptions( parser ):
                        help='Based title of the plots, default=%default')
     parser.add_option('--legendElements', dest='legendElements',
                        help='Specify the legend text - comma separated list' )
-    parser.add_option('--ycutoff', dest='ycutoff', default=0.5, type='float',
+    parser.add_option('--ycutoff', dest='ycutoff', type='float',
                        help='Only points with y-value from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     parser.add_option('--includeCoverage', dest='includeCov', action="store_true", default=False, help='If specified, will include coverage info in the plots')
-    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
+    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):

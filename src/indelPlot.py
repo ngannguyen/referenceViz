@@ -20,13 +20,12 @@ class Sample():
     def __init__( self, xmlnode ):
         self.name = xmlnode.attrib[ 'sampleName' ]
         self.refname = xmlnode.attrib[ 'referenceName' ]
-        self.totalErrors = int( xmlnode.attrib[ 'totalErrors' ] )
-        self.totalCalls = int( xmlnode.attrib[ 'totalCalls' ] )
-        self.errPerSite = 0
-        if self.totalCalls != 0:
-            self.errPerSite = float(self.totalErrors)/self.totalCalls
-        #self.totalSites = int( xmlnode.attrib[ 'totalSites' ] )
-        #self.totalCorrect = int( xmlnode.attrib[ 'totalCorrect' ] )
+        self.dels = float(xmlnode.attrib['totalDeletionPerAlignedBase'])
+        self.ins = float(xmlnode.attrib['totalInsertionPerAlignedBase'])
+        self.indel = float(xmlnode.attrib['totalInsertionAndDeletionPerAlignedBase'])
+        #add cases where it's both insertion & deletion (indel) to insertion & deletion:
+        self.dels += self.indel
+        self.ins += self.indel
 
 def readfiles( options ):
     statsList = []
@@ -43,7 +42,7 @@ def readfiles( options ):
 
 def initOptions( parser ):
     parser.add_option( '--outdir', dest='outdir', default='.', help='Output directory' ) 
-    parser.add_option( '--numOutliners', dest='numOutliners', default=1, help='Number of outliners' ) 
+    #parser.add_option( '--numOutliners', dest='numOutliners', type='int', default=0, help='Number of outliners' ) 
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
@@ -75,23 +74,31 @@ def setAxes(fig, range1, range2):
     ax = fig.add_axes( [axleft, axbottom + h2 + margin, axwidth, h1] )
     return ax, ax2
 
-def drawSnpPlot( options, samples1, samples2 ):
+def drawPlot( options, samples1, samples2, type ):
     #Sorted in decreasing order of errorPerSite in samples1
-    samples1 = sorted( samples1, key=lambda s:s.errPerSite, reverse=True )
+    if type == 'insertion':
+        samples1 = sorted( samples1, key=lambda s:s.ins, reverse=True )
+    else:
+        samples1 = sorted( samples1, key=lambda s:s.dels, reverse=True )
     if len( samples1 ) < 1:
         return
     
     refname1 = samples1[0].refname
     refname2 = samples2[0].refname
 
-    y1data = [ s.errPerSite for s in samples1 ]
+    y1data = [ s.ins for s in samples1 ]
+    if type == 'deletion':
+        y1data = [ s.dels for s in samples1 ]
     
     xticklabels = [ s.name for s in samples1 ]
     y2data = []
     for name in xticklabels:
         for s in samples2:
             if s.name == name or (name == refname2 and s.name == refname1):
-                y2data.append(s.errPerSite)
+                if type == 'insertion':
+                    y2data.append(s.ins)
+                else:
+                    y2data.append(s.dels)
                 break
     if len(xticklabels) != len(y2data):
         sys.stderr.write("Input file 1 and 2 do not have the same set of samples\n")
@@ -102,72 +109,33 @@ def drawSnpPlot( options, samples1, samples2 ):
             xticklabels[i] = "ref/hg19"
     
     #add the average column:
-    num = options.numOutliners
-    if len(y1data) > num:
-        y1avr = sum(y1data[num:])/float(len(y1data) - num)
-        y1data.append(y1avr)
-        xticklabels.append('average')
-        y2avr = sum(y2data[num:])/float(len(y2data) - num)
-        y2data.append(y2avr)
+    num = 1
+    y1avr = sum(y1data[num:])/float(len(y1data) - num)
+    y1data.append(y1avr)
+    xticklabels.append('average')
+    y2avr = sum(y2data[num:])/float(len(y2data) - num)
+    y2data.append(y2avr)
 
-    minOutlier = min( [min(y2data[0:num]), min(y1data[0:num])] ) - 0.001 
-    maxOutlier = max( [max(y2data[0:num]), max(y1data[0:num])] ) + 0.001
-    minMajority = min( [min(y2data[num:]), min(y1data[num:])] ) - 0.001
-    maxMajority = max( [max(y2data[num:]), max(y1data[num:])] ) + 0.001
+    minMajority = min( [min(y2data), min(y1data)] ) - 0.0001
+    maxMajority = max( [max(y2data), max(y1data)] ) + 0.0001
 
     basename = os.path.basename(options.files[0])
-    #options.out = os.path.join( options.outdir, '%s' %(basename.split('_')[0]) )
-    options.out = os.path.join( options.outdir, '%s' %( basename.lstrip('snpStats').lstrip('_').rstrip('.xml') ) )
+    options.out = os.path.join( options.outdir, '%s_%s' %( type, basename.lstrip('pathStats').lstrip('_').rstrip('.xml') ) )
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
-    ax, ax2 = setAxes(fig, maxOutlier - minOutlier, maxMajority - minMajority)
+    #ax, ax2 = setAxes(fig, maxOutlier - minOutlier, maxMajority - minMajority)
+    ax2 = fig.add_axes( [0.15, 0.15, 0.8, 0.8] )
 
-    #Plot the outliers:
-    l2 = ax.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
-    l1 = ax.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
-
-    ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
-    ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
-  
+    l2 = ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
+    l1 = ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    
     #Legend
     fontP = FontProperties()
     fontP.set_size("x-small")
-    legend = ax.legend([l1, l2], [libplot.properName(refname1), libplot.properName(refname2)], 'upper right', numpoints=1, prop=fontP)
+    legend = ax2.legend([l1, l2], [libplot.properName(refname1), libplot.properName(refname2)], 'upper right', numpoints=1, prop=fontP)
     legend._drawFrame = False
-
-    d = .0001 # how big to make the diagonal lines in axes coordinates
-    ax.plot( (-1, 0), (minOutlier +d, minOutlier - d), color = "k", clip_on=False )
-    ax2.plot( (-1, 0), (maxMajority +d, maxMajority - d), color = "k", clip_on=False )
-    
-    ax.set_ylim( minOutlier, maxOutlier ) # outliers only
-    ax.set_xlim( -0.5, len(xticklabels) -0.5 )
-    dummyxticklabels = [ "" for l in xticklabels ]
-    ax.set_xticklabels( dummyxticklabels )
-    
-    #ytickpositions = ax.yaxis.get_majorticklocs()
-    #ytickpositions = [ ytickpositions[i] for i in range(0,len(ytickpositions),2) ]
-    #Make sure the y ticks of the top plot (the outlier plot) is the same with the other plot:
-    step = 0.001
-    ytickpositions = []
-    #ytickpos = 0.013
-    ytickpos = 0
-    while ytickpos < maxOutlier:
-        if ytickpos >= minOutlier:
-            ytickpositions.append(ytickpos)
-        ytickpos += step
-    ax.set_yticks( ytickpositions )
-        
-    #ax.xaxis.set_major_locator( NullLocator() )
-    #ax.xaxis.set_major_formatter( NullFormatter() )
-    
+            
     ax2.set_ylim( minMajority, maxMajority )
     ax2.set_xlim( -0.5, len(xticklabels) -0.5 )
-
-    # hide the spines between ax and ax2
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.yaxis.set_ticks_position( 'left' )
-    ax.xaxis.set_ticks_position( 'none' )
 
     ax2.spines['top'].set_visible(False)
     ax2.spines['right'].set_visible(False)
@@ -177,30 +145,25 @@ def drawSnpPlot( options, samples1, samples2 ):
     ax2.set_xticks( range( 0, len(xticklabels) ) )
     properxticklabels = [ libplot.properName(l) for l in xticklabels ]
     ax2.set_xticklabels( properxticklabels )
-    #Make sure the x ticks of the top plot is the same with the other plot:
-    ax.set_xticks( range(0, len(xticklabels)) )
 
     for label in ax2.xaxis.get_ticklabels():
         label.set_rotation( 90 )
    
-    ax.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
-    ax.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
     ax2.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
     ax2.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
 
     ax2.set_xlabel( 'Samples' )
-    ax2.set_ylabel( 'Snps per site' )
-    title = 'SNPs'
-    ax.set_title( title )
+    title = 'Deletions'
+    #if type == 'insertion':
+    if type == 'deletion':#this is because benedict's definition of deletion is opposite of dbsnp definition of deletion
+        ax2.set_ylabel( 'Insertion per site' )
+        title = 'Insertions'
+    else:
+        ax2.set_ylabel( 'Deletion per site' )
+    ax2.set_title( title )
     
     libplot.writeImage( fig, pdf, options )
    
-def getSample( samples, name ):
-    for s in samples:
-        if s.name == name:
-            return s
-    return None
-
 def main():
     usage = ('Usage: %prog [options] file1.xml file2.xml\n\n')
     parser = OptionParser( usage = usage )
@@ -213,7 +176,8 @@ def main():
     
     statsList = readfiles( options )
 
-    drawSnpPlot( options, statsList[0], statsList[1] )
+    drawPlot( options, statsList[0], statsList[1], 'insertion' )
+    drawPlot( options, statsList[0], statsList[1], 'deletion' )
     
 
 if __name__ == "__main__":

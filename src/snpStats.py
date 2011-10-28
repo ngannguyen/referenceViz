@@ -304,17 +304,18 @@ def readPgSnp(file, start, end, filter):
 
         i = j
         inFilter = False
-        filterReg = filter[i]
-        while filterReg.chromStart <= snp.chromStart:
-            if filterReg.chromStart <= snp.chromStart and snp.chromStart < filterReg.chromEnd:
-                inFilter = True
-                break
-            if filterReg.chromStart < snp.chromStart:
-                j += 1
-            i +=1
-            if i == len(filter):
-                break
+        if i < len(filter):
             filterReg = filter[i]
+            while filterReg.chromStart <= snp.chromStart:
+                if filterReg.chromStart <= snp.chromStart and snp.chromStart < filterReg.chromEnd:
+                    inFilter = True
+                    break
+                if filterReg.chromStart < snp.chromStart:
+                    j += 1
+                i +=1
+                if i == len(filter):
+                    break
+                filterReg = filter[i]
 
         #if not snp.isSnp or not isInRange(snp.chromStart, start, end) or isInFilter(snp.chromStart, filter):
         if not snp.isSnp or not isInRange(snp.chromStart, start, end) or inFilter:
@@ -333,13 +334,16 @@ def readRefSnps(file, filteredSamples, start, end, filter):
     samples = []
     for sample in root.findall( 'statsForSample' ):
         name = sample.attrib['sampleName']
+        totalCalls = int(sample.attrib['totalCalls'])
         if name == 'ROOT' or name == '' or name in filteredSamples:
             continue
-        samples.append(name)
+        samples.append( (name, totalCalls) )
         snps[name] = []
         ref = sample.attrib['referenceName']
         #totalSnps = int( sample.attrib['totalErrors'] )
-        sites = sample.text.strip().split('\n')
+        sites = []
+        if sample.text != None:
+            sites = sample.text.strip().split('\n')
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
                snp = SnpSite(site, name, ref)
@@ -399,7 +403,18 @@ def calcOverlapSnps(snps, reportedSnps, isPgSnp, fpFh):#reportedSnps can be dbSn
 
     return tp, tpPos
 
-def pgSnpOverlap(sample, snps, sample2snps, refTotal): 
+def hackFalseNeg( sample, numSnpsConfirmed ):
+    sample2totalSnps = {"cox": 15967, "qbl": 15282, "ssto": 14982, "apd": 4230, 'dbb': 14255, 'mann': 12102, 'mcf': 10790}
+    if sample in sample2totalSnps:
+        total = sample2totalSnps[sample]
+        if total < numSnpsConfirmed:
+            return 0, 0
+        else:
+            fn =  total - numSnpsConfirmed
+            return fn, fn*100.0/total
+    return -1, -1
+
+def pgSnpOverlap(sample, snps, sample2snps, refTotal, tp): 
     #check against snps that were reported specifically for the sample
     if sample in sample2snps:
         pgsnps = sample2snps[sample]
@@ -412,6 +427,10 @@ def pgSnpOverlap(sample, snps, sample2snps, refTotal):
             sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 100.0*pgTpPos/refTotal, pgTp, 100.0*pgTp/refTotal, fn, 100.0*fn/pgTotal))
         else:
             sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 0.00, pgTp, 0.00, fn, 0.00))
+    else:
+        fn, fnPercentage = hackFalseNeg( sample, tp )
+        if fn >= 0:
+            sys.stdout.write("\t\t\t\t\t\t%d\t%.2f" %(fn, fnPercentage))
 
 def getStats(dbsnps, refsnps, samples, sample2snps, sample2snpsPileup, falsePosFile):
     dbsnps.sort()
@@ -419,8 +438,8 @@ def getStats(dbsnps, refsnps, samples, sample2snps, sample2snpsPileup, falsePosF
     fpFh = open(falsePosFile, "w")
     totalSnps = len(dbsnps)
     sys.stdout.write("Sample\tTotalCalledSnps\ttpPos\tPercentageTpPos\tTP\tPercentageTP\tFP\tPercentageFP\tsampleSnps\tsampleTpPos\tPercentageSampleTpPos\tsampleTP\tPercentageSampleTP\tsampleFN\tPercentageSampleFN\t")
-    sys.stdout.write("pileupSnps\tpileupTpPos\tPercentagePileupTpPos\tpileupTP\tPercentagePileupTP\tpileupFN\tPercentagePileupFN\n")
-    for sample in samples:
+    sys.stdout.write("pileupSnps\tpileupTpPos\tPercentagePileupTpPos\tpileupTP\tPercentagePileupTP\tpileupFN\tPercentagePileupFN\tTotalBases\n")
+    for (sample, totalbases) in samples:
         #sys.stderr.write("Sample %s, sorting...\n" %(sample))
         snps = sorted( refsnps[sample] )
         #sys.stderr.write("Done sorting, len %d\n" %(len(snps)))
@@ -434,11 +453,11 @@ def getStats(dbsnps, refsnps, samples, sample2snps, sample2snpsPileup, falsePosF
             sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tpPos, 100.0*tpPos/refTotal, tp, 100.0*tp/refTotal, fp, 100.0*fp/refTotal))
         else:
             sys.stdout.write("%s\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(sample, refTotal, tpPos, 0.00, tp, 0.00, fp, 0.00))
+        
+        pgSnpOverlap(sample, snps, sample2snps, refTotal, tp)
+        pgSnpOverlap(sample, snps, sample2snpsPileup, refTotal, tp)
 
-        pgSnpOverlap(sample, snps, sample2snps, refTotal)
-        pgSnpOverlap(sample, snps, sample2snpsPileup, refTotal)
-
-        sys.stdout.write("\n")
+        sys.stdout.write("\t%d\n" %(totalbases))
     fpFh.close()
 
 def initOptions( parser ):

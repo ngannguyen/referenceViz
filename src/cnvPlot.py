@@ -152,7 +152,7 @@ def drawCnvPlot( sample, options ):
     options.out = os.path.join( options.outdir, 'cnv_%s' %sampleName  )
     fig, pdf = libplot.initImage( 11.0, 3.25, options )
 
-    title = "Copy Number Variation between %s and the reference %s" % (sampleName, sample.attrib['referenceName'] )
+    title = "Copy Number Variation between %s and %s" % ( libplot.properName(sampleName), libplot.properName(sample.attrib['referenceName']) )
     
     cnvDict, minCn, maxCn = getSampleData( sample )
     axDict = setAxes( fig, cnvDict.keys(), options )

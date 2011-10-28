@@ -194,6 +194,11 @@ def getColors3(): #sequencial
               ]
     return colors
 
+def getColors6():
+    #colors = ["#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02"]
+    colors = ["#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", "#1B9E77"]
+    return colors
+
 def setAxes( fig ):                                                                     
     return fig.add_axes( [0.12, 0.1, 0.83, 0.85] )                                      
                                                                                         
@@ -230,6 +235,20 @@ def bihist( y1, y2, axes, bins, orientation, color=None ):
     #axes.set_ylim( ymin*1.1, ymax*1.1 )
     return ymin, ymax
 
+def properName(name):
+    d = {'reference': 'consensus ref', \
+         'cactusRef':'consensus ref',\
+         'hg19':'GRCh37',\
+         'yanhuang':'YH1',\
+         'nigerian':'NA18507',\
+         'aggregate':'average',\
+         'ref/hg19':'ref',\
+         'minusOtherReference':'not in GRCh37'
+         }
+    if name in d:
+        return d[name]
+    return name
+
 #============== LATEX =========
 def prettyInt( number ):
     numstr = str( number )
@@ -254,9 +273,10 @@ def writeDocumentStart( f ):
     f.write( "\\usepackage{multirow}\n" )
     f.write( "\\usepackage{graphicx}\n" )
     f.write( "\\usepackage{array}\n" )
-    f.write( "\\usepackage{color}\n" )
+    f.write( "\\usepackage{color, colortbl}\n" )
     f.write( "\\usepackage{rotating}\n" )
     f.write( "\\usepackage[table]{xcolor}\n" )
+    f.write( "\\definecolor{LightCyan}{rgb}{0.88,1,1}")
     f.write( "\n" )
 
     f.write( "\\newcommand{\\figref}[1]{Figure~\\ref{fig:#1}}\n" )

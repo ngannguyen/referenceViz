@@ -312,17 +312,18 @@ def readPgSnp(file, cutoff, start, end, filter):
 
         i = j
         inFilter = False
-        filterReg = filter[i]
-        while filterReg.chromStart <= snp.chromStart:
-            if filterReg.chromStart <= snp.chromStart and snp.chromStart < filterReg.chromEnd:
-                inFilter = True
-                break
-            if filterReg.chromStart < snp.chromStart:
-                j += 1
-            i +=1
-            if i == len(filter):
-                break
+        if i  <len(filter):
             filterReg = filter[i]
+            while filterReg.chromStart <= snp.chromStart:
+                if filterReg.chromStart <= snp.chromStart and snp.chromStart < filterReg.chromEnd:
+                    inFilter = True
+                    break
+                if filterReg.chromStart < snp.chromStart:
+                    j += 1
+                i +=1
+                if i == len(filter):
+                    break
+                filterReg = filter[i]
 
         if snp.isIndel != ""  and snp.alleleSize <= cutoff and isInRange(snp.chromStart, start, end) and not inFilter:
             if snp.isIndel == 'insertion':
@@ -487,6 +488,10 @@ def getStats(dbsnps, refsnps, samples, sample2snps, wobble, type, falsePosFile):
                 sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 100.0*pgTpPos/refTotal, pgTp, 100.0*pgTp/refTotal, fn, 100.0*fn/pgTotal))
             else:
                 sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 0.00, tp, 0.00, fn, 0.00))
+        else:
+            fn, fnPercentage = hackFalseNeg( sample, tp )
+            if fn >= 0:
+                sys.stdout.write("\t\t\t\t\t\t%d\t%.2f" %(fn, fnPercentage))
 
         sys.stdout.write("\n")
 

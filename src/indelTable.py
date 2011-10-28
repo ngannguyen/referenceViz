@@ -3,6 +3,7 @@
 import os, sys, re
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
+import libPlotting as libplot
 
 def writeDocumentStart( f ):
     f.write( "\\documentclass[11pt]{article}\n" )
@@ -45,7 +46,8 @@ def tabHeader( f, title ):
     f.write("\\multicolumn{5}{c}{%s} \\\\\n" %title)
     f.write("\\hline\n")
     f.write("\\hline\n")
-    f.write("\\multicolumn{2}{c|}{Sample} & Deletion & Non-linear Operation & SNP\\\\\n")
+    #f.write("\\multicolumn{2}{c|}{Sample} & Deletion & Non-linear Breakpoint & SNP\\\\\n")
+    f.write("\\multicolumn{2}{c|}{Sample} & Insertion & Non-linear Breakpoint & SNP\\\\\n")
     #f.write("\\multicolumn{2}{c}{\\multirow{2}{*}{}} & \\multicolumn{2}{c}{Conserved} & \\multicolumn{2}{c}{Non-conserved} & \\multicolumn{2}{c}{Total} \\\\\n")
     #f.write("\\cline{3-8}\n")
     #f.write("\\multicolumn{2}{c}{} & Count & Percentage & Count & Percentage & Count & Percentage\\\\\n")
@@ -86,16 +88,18 @@ def tab( f, samplesList, sampleNames ):
             for sample in samplesList[altColor + 2]:
                 if sample.attrib['sampleName'] == s:
                     numSnps = int(sample.attrib['totalErrors'])
-                    numSnpsPerAlignedBase = numSnps/float( sample.attrib['totalCalls'])
-                    numSnpsPerAlignedBase = prettyFloat( numSnpsPerAlignedBase )
+                    numSnpsPerAlignedBase = '0'
+                    if float( sample.attrib['totalCalls'] ) != 0:
+                        numSnpsPerAlignedBase = numSnps/float( sample.attrib['totalCalls'])
+                        numSnpsPerAlignedBase = prettyFloat( numSnpsPerAlignedBase )
                     break
            
             if altColor == 1:
                 f.write("\\multirow{2}{*}{%s} &\\cellcolor[gray]{0.9} %s & \\cellcolor[gray]{0.9} %d (%s) & \\cellcolor[gray]{0.9} %d (%s) & \\cellcolor[gray]{0.9} %d (%s) \\\\\n" % \
-                        (s, refname2, numDels, numDelsPerAlignedBase, numNonLinearOps, numNonLinearOpsPerAlignedBase, numSnps, numSnpsPerAlignedBase))
+                        ( libplot.properName(s), libplot.properName(refname2), numDels, numDelsPerAlignedBase, numNonLinearOps, numNonLinearOpsPerAlignedBase, numSnps, numSnpsPerAlignedBase))
             else:
                 f.write("& %s & %d (%s) & %d (%s) & %d (%s) \\\\\n" %\
-                        (refname1, numDels, numDelsPerAlignedBase, numNonLinearOps, numNonLinearOpsPerAlignedBase, numSnps, numSnpsPerAlignedBase))
+                        (libplot.properName(refname1), numDels, numDelsPerAlignedBase, numNonLinearOps, numNonLinearOpsPerAlignedBase, numSnps, numSnpsPerAlignedBase))
                 f.write("\\hline\n\n")
             #altColor = 1 - altColor
     #f.write("\\hline\n\n")
@@ -108,7 +112,7 @@ def tableCloser(f, captionStr, label):
     f.write("\\label{%s}" %label)
     f.write("\\end{table}\n\n")
 
-def makeLatexTab( samplesList, outdir, sampleNames ):
+def makeLatexTab( samplesList, outdir, sampleNames, outprefix ):
     #samples = sorted( samples, key=lambda s: s.attrib[ 'sampleName' ] )
     absOutdir = os.path.abspath( outdir )
     if not os.path.exists( absOutdir ):
@@ -125,7 +129,7 @@ def makeLatexTab( samplesList, outdir, sampleNames ):
                           and input file 2 and input file 4 must have the same referenceName.")
         sys.exit( 1 )
     
-    out = os.path.join( absOutdir, "indelStats_%s-%s.tex" % (refname1,refname2) )
+    out = os.path.join( absOutdir, "%s.tex" % (outprefix) )
     f = open( out, 'w' )
 
     writeDocumentStart( f )
@@ -163,7 +167,8 @@ def main():
     usage = "Usage %prog [options] pathStats*.xml1 pathStats*.xml2 snpStats*.xml1 snpStats*.xml2"
     parser = OptionParser( usage = usage )
     parser.add_option('--outdir', dest='outdir', default='.', help="Output directory")
-    parser.add_option('--samples', dest='samples', default='apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3', help="Comma separated list of samples in the desired order")
+    parser.add_option('--outPrefix', dest='outPrefix', default='indelStats', help="prefix to output file")
+    parser.add_option('--samples', dest='samples', default='apd,cox,dbb,mann,mcf,qbl,ssto,venter,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3', help="Comma separated list of samples in the desired order")
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
     #parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
     options, args = parser.parse_args()
@@ -176,7 +181,7 @@ def main():
         options.filteredSamples = []
     samplesList = readfiles( args, options.filteredSamples ) #xml trees
     sampleNames = options.samples.split(',')
-    makeLatexTab( samplesList, options.outdir, sampleNames )
+    makeLatexTab( samplesList, options.outdir, sampleNames, options.outPrefix )
 
 
 if __name__ == '__main__':

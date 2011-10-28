@@ -151,7 +151,7 @@ def drawData( axesList, samples, samplesPerPlot, options ):
             axes.set_ylabel('Count', size = textsize)
 
         #Legend
-        legend = axes.legend( linesDict[ i ], labelsDict[ i ], 'upper right', ncol=3 )
+        legend = axes.legend( linesDict[ i ], [ libplot.properName(n) for n in labelsDict[ i ]], 'upper right', ncol=3 )
         for t in legend.get_texts():
             t.set_fontsize('x-small')
         legend._drawFrame = False
@@ -180,7 +180,7 @@ def drawData( axesList, samples, samplesPerPlot, options ):
 
     return
 
-def drawPlots( options, samples ):
+def drawPlots( options, samples, outname ):
     #sort samples:
     #samples = sorted( samples, key=lambda s: s.attrib[ 'sampleName' ] )
 
@@ -188,7 +188,8 @@ def drawPlots( options, samples ):
         return
 
     refname = samples[0].attrib[ 'referenceName' ]
-    options.out = os.path.join( options.outdir, 'indelDist_' + refname )
+    #options.out = os.path.join( options.outdir, 'indelDist_' + refname )
+    options.out = os.path.join( options.outdir, 'indelDist_' + outname )
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     
     samplesPerPlot = 10
@@ -201,11 +202,13 @@ def drawPlots( options, samples ):
 
 def readfiles( files ):
     statsList = [] #each element represents each xml file
+    names = []
     for f in files:
         xmltree = ET.parse( f )
         statsList.append( xmltree )
+        names.append( os.path.basename(f).lstrip('pathStats_').rstrip('.xml') )
 
-    return statsList
+    return statsList, names
 
 def initOptions( parser ):
     #parser.add_option('--title', dest='title', default='',
@@ -214,7 +217,7 @@ def initOptions( parser ):
     #                   help='Only points with y values from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     #parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,panTro2", help="Samples order")
-    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,watson,NA12891,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
+    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
     parser.add_option('--xlog', dest='xlogscale', default="true")
     parser.add_option('--ylog', dest='ylogscale', default="true")
@@ -245,7 +248,7 @@ def main():
     checkOptions( args, options, parser)
     libplot.checkOptions( options, parser )
 
-    statsList = readfiles( options.files )
+    statsList, names = readfiles( options.files )
 
     #Filter out non-leaf samples:
     statsListF = []
@@ -256,7 +259,8 @@ def main():
         samples = getLeaves( allsamples, options.filteredSamples )
         statsListF.append( samples )
 
-    for samples in statsListF:
+    for i, samples in enumerate(statsListF):
+        outname = names[i]
         sortedSamples = []
         if len(options.samplesOrder) == 0:
             sortedSamples = sorted(samples, key=lambda s:s.name)
@@ -265,8 +269,7 @@ def main():
                 for sample in samples:
                     if sample.attrib['sampleName'] == name:
                         sortedSamples.append( sample )
-
-        drawPlots( options, sortedSamples )
+        drawPlots( options, sortedSamples, outname )
 
     #if len( statsListF ) >= 2:
     #    for i in range( len(statsListF) -1 ):

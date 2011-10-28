@@ -118,8 +118,10 @@ def drawCompareN50data( axes, xsamples, ysamples, options ):
     axes.plot( x, y, color="0.9" )
 
     libplot.editSpine( axes )
-    pyplot.xlabel( xrefname )
-    pyplot.ylabel( yrefname )
+    if options.logscale:
+        #pyplot.ylabel( 'Log 10 of N50' )
+        pyplot.xlabel( "%s (Log 10)" % libplot.properName(xrefname) )
+        pyplot.ylabel( "%s (Log 10)" %libplot.properName(yrefname) )
 
     return lines, lineNames, maxval, minval
 
@@ -147,7 +149,7 @@ def drawN50Plot( options, samples ):
         return
 
     refname = samples[0].attrib[ 'referenceName' ]
-    options.out = os.path.join( options.outdir, 'n50_' + refname )
+    options.out = os.path.join( options.outdir, options.prefix + '_' + refname )
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
 
@@ -165,7 +167,7 @@ def drawN50Plot( options, samples ):
 
     #libplot.setTicks( axes )
     axes.set_xticks( range( 0, len(samples) ) )
-    axes.set_xticklabels( sampleNames )
+    axes.set_xticklabels( [ libplot.properName(n) for n in sampleNames ] )
     for label in axes.xaxis.get_ticklabels():
         label.set_rotation( 90 )
 
@@ -186,7 +188,7 @@ def drawCompareN50Plot( options, xsamples, ysamples ):
 
     xrefname = xsamples[0].attrib[ 'referenceName' ]
     yrefname = ysamples[0].attrib[ 'referenceName' ]
-    options.out = os.path.join( options.outdir, 'n50_' + xrefname + '_' + yrefname )
+    options.out = os.path.join( options.outdir, options.prefix + '_' + xrefname + '_' + yrefname )
     fig, pdf = libplot.initImage( 8.0, 8.0, options )
     axes = fig.add_axes( [0.12, 0.1, 0.85, 0.85] )
 
@@ -195,7 +197,7 @@ def drawCompareN50Plot( options, xsamples, ysamples ):
         sys.stderr.write('Comparing N50 stats of %s and %s: All values are 0, no plot created\n' %(xrefname, yrefname) )
         return
 
-    title = "N50 %s versus %s" % (xrefname, yrefname)
+    title = "N50" #% ( libplot.properName(xrefname), libplot.properName(yrefname) )
     axes.set_title(title)
      
     #Legend
@@ -233,6 +235,7 @@ def initOptions( parser ):
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     parser.add_option('--abs', dest='logscale', action="store_false", default=True, help="If specified, the axes have the absolute scale, instead of log 10 as default")
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
+    parser.add_option('-p', '--prefix', dest='prefix', default = 'n50')
 
 def checkOptions( args, options, parser ):
     if len(args) < 1:

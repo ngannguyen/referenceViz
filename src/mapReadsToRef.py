@@ -48,9 +48,10 @@ class Plots(Target):
 
     def run(self):
         system("mappingPlot.py -i %s -o %s" %(self.indir, self.outdir))
-        for d in os.listdir(indir):
-            if d != 'plots':
-                system( "rm -Rf %s" %(os.path.join(self.indir, d)) )
+        if self.cleanup:
+            for d in os.listdir(self.indir):
+                if d != 'plots':
+                    system( "rm -Rf %s" %(os.path.join(self.indir, d)) )
 
 class RunExperiment(Target):
     """
@@ -646,7 +647,8 @@ class MergeBams(Target):
         if count == 0:
             return
         elif count == 1:
-            system("cp %s %s" %( os.path.join(self.indir, bams[0]), os.path.join(self.indir, "sortedMerge.bam") ) )
+            #system("cp %s %s" %( os.path.join(self.indir, bams[0]), os.path.join(self.indir, "sortedMerge.bam") ) )
+            system("cp %s %s" %( os.path.join(self.indir, bams[0]), os.path.join(self.indir, "merge.bam") ) )
             self.setFollowOnTarget( Snp(self.indir, self.options) )
             return
 
@@ -659,15 +661,18 @@ class MergeBams(Target):
         bamStr = " ".join(localBams)
         
         #logger.info("Merging %s\n" %filesStr)
+        logger.info("Merging bams...\n")
         mergeFile = os.path.join(localTempDir, "merge.bam")
         mergeCmd = "samtools merge %s %s" %(mergeFile, bamStr)
         system( mergeCmd )
-        sortPrefix = os.path.join(localTempDir, "sortedMerge")
-	logger.info("Sorted %s with prefix %s\n" %(mergeFile, sortPrefix))
-        sortCmd = "samtools sort %s %s" %( mergeFile, sortPrefix )
-        system(sortCmd)
+        system( "cp %s %s" %(mergeFile, self.indir) )
+
+        #sortPrefix = os.path.join(localTempDir, "sortedMerge")
+	#logger.info("Sorted %s with prefix %s\n" %(mergeFile, sortPrefix))
+        #sortCmd = "samtools sort %s %s" %( mergeFile, sortPrefix )
+        #system(sortCmd)
         #move to indir:
-        system("mv %s.bam %s" %(sortPrefix, self.indir))
+        #system("mv %s.bam %s" %(sortPrefix, self.indir))
 
         #Get Snps info:
         self.setFollowOnTarget( Snp(self.indir, self.options) )
@@ -681,8 +686,14 @@ class Snp(Target):
     def run(self):
         localTempDir = self.getLocalTempDir()
         system("cp %s* %s" %(self.options.refseq, localTempDir))
-        system("cp %s %s" %(os.path.join(self.dir, "sortedMerge.bam"), localTempDir))
+        system("cp %s %s" %(os.path.join(self.dir, "merge.bam"), localTempDir))
+        #system("cp %s %s" %(os.path.join(self.dir, "sortedMerge.bam"), localTempDir))
         vcfFile = os.path.join(localTempDir, "merge.vcf")
+
+        sortPrefix = os.path.join(localTempDir, "sortedMerge")
+        sortCmp = "samtools sort %s %s" %( os.path.join(localTempDir, "merge.bam"), sortPrefix )
+        system( sortCmp )
+
         cmd = "samtools mpileup %s -f %s -g | bcftools view -v - > %s" %(os.path.join(localTempDir, "sortedMerge.bam"), os.path.join(localTempDir, os.path.basename(self.options.refseq)), vcfFile)
         system(cmd)
         snpcountfile = os.path.join(localTempDir, "snpcount.txt")
