@@ -437,7 +437,7 @@ def getFilteredSamples(exp):
     #filtered sample:
     filteredSamples = ''
     items = exp.split('_')
-    if len(items) >=2:
+    if len(items) > 2:
         filteredSamples = items[ len(items) -1 ]
     return filteredSamples
 
