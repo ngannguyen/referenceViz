@@ -76,10 +76,10 @@ def readfile( file ):
     return samples
 
 def readfiles( options ):
-    file2expname = { 'indelCheck__0_ignoreAdjacencies_hg19_withAggregates.txt': 'All',\
-              'indelCheck__5_ignoreAdjacencies_hg19_withAggregates.txt':'Wobble',\
-              'indelCheck_noRepeats_0_ignoreAdjacencies_hg19_withAggregates.txt': 'No-repeats',\
-              'indelCheck_noRepeats_5_ignoreAdjacencies_hg19_withAggregates.txt': 'Wobble, No-repeats'}
+    file2expname = { 'indelCheck_0_g19_withAggregates.txt': 'All',\
+              'indelCheck_5_g19_withAggregates.txt':'Wobble',\
+              'indelCheck_noRepeats_0_g19_withAggregates.txt': 'No-repeats',\
+              'indelCheck_noRepeats_5_g19_withAggregates.txt': 'Wobble, No-repeats'}
 
     exps = {}
     for f in options.files:
@@ -91,14 +91,14 @@ def initOptions( parser ):
     parser.add_option( '--outdir', dest='outdir', default='.', help='Output directory' ) 
     parser.add_option( '--indir', dest='indir', help='Required argument. Input directory' ) 
     parser.add_option( '--numOutliners', dest='numOutliners', default=1, help='Number of outliners' ) 
-    #parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
     files = [
-             'indelCheck__0_ignoreAdjacencies_hg19_withAggregates.txt',\
-             'indelCheck__5_ignoreAdjacencies_hg19_withAggregates.txt',\
-             'indelCheck_noRepeats_0_ignoreAdjacencies_hg19_withAggregates.txt',\
-             'indelCheck_noRepeats_5_ignoreAdjacencies_hg19_withAggregates.txt'
+             'indelCheck_0_g19_withAggregates.txt',\
+             'indelCheck_5_g19_withAggregates.txt',\
+             'indelCheck_noRepeats_0_g19_withAggregates.txt',\
+             'indelCheck_noRepeats_5_g19_withAggregates.txt'
             ]
     if options.indir == None:
         parser.error( 'Please provide input directory\n')
@@ -267,6 +267,14 @@ def drawPlots( options, exps ):
     totalfile = os.path.join( options.outdir, 'indelCheck_total' )
     drawPlot(exps, options, totalfile, 'total')
 
+def getFilteredSamples(exp):
+    #filtered sample:
+    filteredSamples = ''
+    items = exp.split('_')
+    if len(items) >=2:
+        filteredSamples = items[ len(items) -1 ]
+    return filteredSamples
+
 def main():
     usage = ('Usage: %prog [options] file1.xml file2.xml\n\n')
     parser = OptionParser( usage = usage )
@@ -276,6 +284,11 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     libplot.checkOptions( options, parser )
+
+    #HACK:
+    filteredSamples = getFilteredSamples( os.path.basename(options.indir) )
+    if len(filteredSamples) > 0:
+        return
 
     exps = readfiles( options )
     drawPlots( options, exps )

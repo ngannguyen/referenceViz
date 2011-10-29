@@ -70,21 +70,22 @@ class SnpSite():
         if len(items) < 16:
             sys.stderr.write('cactus indel record does not have enough fields\n')
             sys.exit(1)
-        self.name = items[9]
-        self.start = int( items[11] )
-        self.length = int(items[13])
-        self.strand = items[15]
+        self.name = items[1]
+        self.start = int( items[3] )
+        self.length = int(items[5])
+        self.strand = items[7]
         #self.allele = items[2].lower()
-        self.ref = items[1]
-        self.refstart = int( items[3] ) 
-        self.reflength = int(items[5])
-        self.refstrand = items[7]
+        self.ref = items[9]
+        self.refstart = int( items[11] ) 
+        self.reflength = int(items[13])
+        self.refstrand = items[15]
         if self.reflength == 0 and self.length == 0:
             sys.stderr.write('Not an insertion or a deletion: length1 == length2 ==0: %s\t%d\n' %(self.sampleName, self.refstart))
 
         refitems = self.ref.split('.')
-        if len(refitems) <=2:
+        if len(refitems) < 2:
             sys.stderr.write('Reference sequence must provide chromosome info: i.e: species.chr\n')
+            sys.stderr.write("%s\n" %self.ref)
             sys.exit(1)
         self.refchrom = refitems[1]
         
@@ -488,10 +489,10 @@ def getStats(dbsnps, refsnps, samples, sample2snps, wobble, type, falsePosFile):
                 sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 100.0*pgTpPos/refTotal, pgTp, 100.0*pgTp/refTotal, fn, 100.0*fn/pgTotal))
             else:
                 sys.stdout.write("\t%d\t%d\t%.2f\t%d\t%.2f\t%d\t%.2f" %(pgTotal, pgTpPos, 0.00, tp, 0.00, fn, 0.00))
-        else:
-            fn, fnPercentage = hackFalseNeg( sample, tp )
-            if fn >= 0:
-                sys.stdout.write("\t\t\t\t\t\t%d\t%.2f" %(fn, fnPercentage))
+        #else:
+        #    fn, fnPercentage = hackFalseNeg( sample, tp )
+        #    if fn >= 0:
+        #        sys.stdout.write("\t\t\t\t\t\t%d\t%.2f" %(fn, fnPercentage))
 
         sys.stdout.write("\n")
 

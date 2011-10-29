@@ -47,7 +47,7 @@ def setAxes( fig, numSamples, samplesPerPlot ):
     numaxes *= 2 #display plots of insertion & deletion in the same fig
 
     axesList = []
-    axleft = 0.08
+    axleft = 0.1
     axright = 0.95
     axwidth = axright - axleft
     axbottom = 0.08

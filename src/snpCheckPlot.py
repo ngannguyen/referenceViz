@@ -81,7 +81,7 @@ def initOptions( parser ):
     parser.add_option( '--outdir', dest='outdir', default='.', help='Output directory' ) 
     parser.add_option( '--indir', dest='indir', help='Required argument. Input directory' ) 
     parser.add_option( '--numOutliners', dest='numOutliners', default=1, help='Number of outliners' ) 
-    #parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
+    parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
     files = [ 'dbsnpCheck_hg19_withAggregates.txt',\
@@ -288,6 +288,14 @@ def drawPlots( options, exps ):
     tpfnfile = os.path.join( options.outdir, 'dbsnpCheck_TPFN' )
     drawPlot(exps, options, tpfnfile, 'tpfn')
 
+def getFilteredSamples(exp):
+    #filtered sample:
+    filteredSamples = ''
+    items = exp.split('_')
+    if len(items) >=2:
+        filteredSamples = items[ len(items) -1 ]
+    return filteredSamples
+
 def main():
     usage = ('Usage: %prog [options] file1.xml file2.xml\n\n')
     parser = OptionParser( usage = usage )
@@ -297,6 +305,11 @@ def main():
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
     libplot.checkOptions( options, parser )
+
+    #HACK:
+    filteredSamples = getFilteredSamples( os.path.basename(options.indir) )
+    if len(filteredSamples) > 0:
+        return
 
     exps = readfiles( options )
     drawPlots( options, exps )

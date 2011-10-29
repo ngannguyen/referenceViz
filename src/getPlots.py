@@ -111,11 +111,11 @@ class Setup(Target):
                  self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend, self.filter) )
                  self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend, self.filter) )
              
-             if 'indelcheckplot' in self.analyses:
-                 self.addChildTarget( IndelCheckPlot(indir, outdir) )
+             #if 'indelcheckplot' in self.analyses:
+             #    self.addChildTarget( IndelCheckPlot(indir, outdir) )
              
-             if 'snpcheckplot' in self.analyses:
-                 self.addChildTarget( SnpCheckPlot(indir, outdir) )
+             #if 'snpcheckplot' in self.analyses:
+             #    self.addChildTarget( SnpCheckPlot(indir, outdir) )
 
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
@@ -132,8 +132,26 @@ class Setup(Target):
              if 'cnv' in self.analyses:
                  self.addChildTarget( Cnv(indir, outdir, filteredSamples) )
              
-        #Cleanup:
-        #self.setFollowOnTarget( Cleanup(self.output) )
+         self.setFollowOnTarget( CheckPlot(self.analyses, self.outdir) )
+
+class CheckPlot(Target):
+    def __init__(self, analyses, outdir):
+        Target.__init__(self, time=0.25)
+        self.outdir = outdir
+        self.analyses = analyses
+    
+    def run(self):
+         experiments = os.listdir(self.outdir)
+         for exp in experiments:
+             outdir = os.path.join(self.outdir, exp)
+             if not os.path.isdir(outdir):
+                 continue
+             
+             if 'indelcheckplot' in self.analyses:
+                 self.addChildTarget( IndelCheckPlot(outdir, outdir) )
+             
+             if 'snpcheckplot' in self.analyses:
+                 self.addChildTarget( SnpCheckPlot(outdir, outdir) )
 
 class Contiguity(Target):
     """
