@@ -64,8 +64,11 @@ def setAxes( fig, numSamples, samplesPerPlot ):
     
     return axesList
 
-def getFreq( dist, xlogscale, ylogscale ):
+def getFreq( dist, proportion, culm ):
     freqDict = {}
+    totalbases = sum(dist)
+    if totalbases == 0:
+        return [], []
     for v in dist:
         if v in freqDict.keys():
             freqDict[ v ] += 1
@@ -75,29 +78,70 @@ def getFreq( dist, xlogscale, ylogscale ):
     xdata = sorted( freqDict )
     ydata = []
     for x in xdata:
-        ydata.append( freqDict[ x ] )
+        y = freqDict[ x ]
+        if proportion:
+            y *= x
+            #y = 100.0*y/totalbases #Percentage
+        ydata.append( y )
     
-    if xlogscale == "true":
-        xdata = log( array(xdata) )
-    if ylogscale == "true":
-        ydata = log( array(ydata) )
+    if culm: #Cumulative data
+        for i in xrange( len(ydata) -1, -1, -1 ):
+            ydata[i] = sum(ydata[:i+1])
+    
+    #HACK:
+    if proportion and not culm:
+        index = len(xdata)
+        for i, x in enumerate(xdata):
+            if x > 100:
+                index = i
+                break
+        xdata = xdata[:index]
+        ydata = ydata[:index]
+    #if xlogscale == "true":
+    #    xdata = log( array(xdata) )
+    #if ylogscale == "true":
+    #    ydata = log( array(ydata) )
 
     return xdata, ydata
 
-def drawData( axesList, samples, samplesPerPlot, options ):
-    #colors = libplot.getColors2( len(keys) )
-    #markers = [".", "s", "^", "--"]
+def getLargeIndelProp(xdata, ydata): 
+    large = 0
+    total = ydata[ len(ydata) - 1 ]
+    index = -1
+    for i, x in enumerate(xdata):
+        if xdata[i] >= 1000:
+            index = i -1
+            break
+    if index >= 0 and total > 0:
+        return (total - ydata[index])*100.0/total
+    return 0
+
+def drawData( axesList, samples, samplesPerPlot, options, proportion, culm ):
+    largeIns = [] #List of proportion of total indel bases that indels >= 1000bp take up, each element is for each sample
+    largeDels = []
+
     if len(axesList) %2 != 0:
         sys.stderr.write( 'Number of axes must be even. Got %d\n' %len(axesList) )
         sys.exit( 1 )
 
     colors = libplot.getColors1()
+    if len(samples) < 1:
+        return
+    if samples[0].attrib["referenceName"] == "reference":
+        colors.pop(0)
+    elif samples[0].attrib["referenceName"] == 'hg19':
+        colors.pop(1)
+
     #styles = []
 
     c = -1
     textsize = 'x-small'
     linesDict = {}
     labelsDict = {}
+    xmax = float('-inf')
+    ymax = float('-inf')
+    xmin = float('inf')
+    ymin = float('inf')
     for i in range( len(axesList)/2 ):
         inslines = []
         dellines = []
@@ -112,17 +156,57 @@ def drawData( axesList, samples, samplesPerPlot, options ):
             sampleNames.append( sample.attrib[ 'sampleName' ] )
             insDist = [int(val) for val in sample.attrib[ 'insertionSizeDistribution' ].split()]
             #insXdata, insYdata = getFreq( insDist, options.xlogscale, options.ylogscale )
-            insXdata, insYdata = getFreq( insDist, True, True )
+            insXdata, insYdata = getFreq( insDist, proportion, culm )
             delDist = [int(val) for val in sample.attrib[ 'deletionSizeDistribution' ].split()]
             #delXdata, delYdata = getFreq( delDist, options.xlogscale, options.ylogscale )
-            delXdata, delYdata = getFreq( delDist, True, True )
-            
+            delXdata, delYdata = getFreq( delDist, proportion, culm )
+
+            #LARGE INDELS, FOR paper STATS, not related to the plot:
+            if proportion and culm:
+                largeIns.append( getLargeIndelProp(insXdata, insYdata) )
+                largeDels.append( getLargeIndelProp(delXdata, delYdata) )
+
             c += 1
             il = insAxes.plot( insXdata, insYdata, color=colors[c] )
             dl = delAxes.plot( delXdata, delYdata, color=colors[c] )
 
             inslines.append( il )
             dellines.append( dl )
+            
+            insXmax = xmax
+            delXmax = xmax
+            if len(insXdata) >0:
+                insXmax = max(insXdata)
+            if len(delXdata) > 0:
+                delXmax = max(delXdata)
+            xmax = max( [xmax, insXmax, delXmax] )
+
+            insYmax = ymax
+            delYmax = ymax
+            if len(insYdata) >0:
+                insYmax = max(insYdata)
+            if len(delYdata) > 0:
+                delYmax = max(delYdata)
+            ymax = max( [ymax, insYmax, delYmax] )
+
+            insXmin = xmin
+            delXmin = xmin
+            if len(insXdata) >0:
+                insXmin = min(insXdata)
+            if len(delXdata) > 0:
+                delXmin = min(delXdata)
+            xmin = min( [xmin, insXmin, delXmin] )
+
+            insYmin = ymin
+            delYmin = ymin
+            if len(insYdata) >0:
+                insYmin = min(insYdata)
+            if len(delYdata) > 0:
+                delYmin = min(delYdata)
+            ymin = min( [ymin, insYmin, delYmin] )
+
+            #xmax = max([xmax, max(insXdata), max(delXdata)])
+            #ymax = max([ymax, max(insYdata), max(delYdata)])
         
         linesDict[ i ] = inslines
         labelsDict[ i ] = sampleNames
@@ -130,19 +214,27 @@ def drawData( axesList, samples, samplesPerPlot, options ):
         labelsDict[ i + len(axesList)/2 ] = sampleNames
         #fontp = FontProperties()
         #fontp.set_size( 'x-small' )
-        insAxes.set_title( 'Insertions%d' %i )    
-        delAxes.set_title( 'Deletions%d' %i )
+        if i == 0:
+            insAxes.set_title( 'Insertions' )    
+            delAxes.set_title( 'Deletions' )
         
     for i in range( len(axesList) ):
         axes = axesList[ i ]
         if options.xlogscale == "true":
             axes.set_xscale('log')
+
+        #if options.ylogscale == "true" and not proportion:
         if options.ylogscale == "true":
             axes.set_yscale('log')
         libplot.editSpine( axes )
         
         axes.set_xlabel('Length (bp)', size = textsize)
-        axes.set_ylabel('Count', size = textsize)
+        if not proportion:
+            axes.set_ylabel('Event number', size = textsize)
+        else:
+            axes.set_ylabel('Number of positions', size = textsize)
+        axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+        axes.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
         #if options.xlogscale == "true":
         #    axes.set_xlabel('Log 2 of length (bp)', size = textsize)
         #else:
@@ -158,8 +250,19 @@ def drawData( axesList, samples, samplesPerPlot, options ):
             t.set_fontsize('x-small')
         legend._drawFrame = False
 
+        if options.xlogscale == "true":
+            scale = len(str(xmax)) -1
+            xticks = [ 10**x for x in range(scale + 1) ]
+            axes.set_xticks( xticks )
+        #if options.ylogscale == "true" and not proportion:
+        if options.ylogscale == "true":
+            scale = len(str(ymax)) -1
+            yticks = [ 10**y for y in range(scale + 1) ]
+            axes.set_yticks( yticks )
+
+
         for label in axes.get_xticklabels():
-            #label.set_rotation(45)
+            #label.set_rotation(75)
             label.set_fontsize( textsize )
         for label in axes.get_yticklabels():
             label.set_fontsize( textsize )
@@ -177,12 +280,23 @@ def drawData( axesList, samples, samplesPerPlot, options ):
         #axes.xaxis.set_ticks_position( 'bottom' )
         #axes.yaxis.set_ticks_position( 'left' )
 
-        #axes.set_xlim( -0.5, len(samples) - 0.5 )
-        #axes.set_ylim( -20, 6000 )
+        axes.set_ylim( ymin, ymax )
+        if proportion and not culm:
+            axes.set_xlim( xmin, 100 )
+        else:
+            axes.set_xlim( xmin, xmax )
+
+    #PRINT THE LARGE INDEL STATS:
+    if proportion and culm:
+        sys.stderr.write("largeIndelStats\n")
+        sys.stderr.write("Large insertions: %f\n" %( sum(largeIns)/len(largeIns) ))
+        sys.stderr.write("Large deletions: %f\n" %( sum(largeDels)/len(largeDels) ))
+        largeIndels = [ (largeIns[i] + largeDels[i])/2.0 for i in range(len(largeIns)) ]
+        sys.stderr.write("IndelsAverage: %f\n" %( sum(largeIndels)/len(largeIndels) ))
 
     return
 
-def drawPlots( options, samples, outname ):
+def drawPlots( options, samples, outname, proportion, culm ):
     #sort samples:
     #samples = sorted( samples, key=lambda s: s.attrib[ 'sampleName' ] )
 
@@ -190,14 +304,19 @@ def drawPlots( options, samples, outname ):
         return
 
     refname = samples[0].attrib[ 'referenceName' ]
+    sys.stderr.write("%s\n" %refname)
     #options.out = os.path.join( options.outdir, 'indelDist_' + refname )
     options.out = os.path.join( options.outdir, 'indelDist_' + outname )
+    if proportion:
+        options.out = os.path.join( options.outdir, 'indelDist2_' + outname )
+    if culm:
+        options.out += '_culm'
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     
     samplesPerPlot = 10
     axesList = setAxes( fig, len(samples), samplesPerPlot )
 
-    lines = drawData( axesList, samples, samplesPerPlot, options )
+    lines = drawData( axesList, samples, samplesPerPlot, options, proportion, culm )
 
     libplot.writeImage( fig, pdf, options )
 
@@ -271,7 +390,10 @@ def main():
                 for sample in samples:
                     if sample.attrib['sampleName'] == name:
                         sortedSamples.append( sample )
-        drawPlots( options, sortedSamples, outname )
+        #print outname
+        drawPlots( options, sortedSamples, outname, False, False )
+        drawPlots( options, sortedSamples, outname, True, False )
+        drawPlots( options, sortedSamples, outname, True, True )
 
     #if len( statsListF ) >= 2:
     #    for i in range( len(statsListF) -1 ):

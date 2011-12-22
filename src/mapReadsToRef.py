@@ -37,6 +37,26 @@ class Setup(Target):
             sample = samples[i]
             logger.info("Experiment %s, sample %s\n" %(exp, sample) )
             self.addChildTarget( RunExperiment(options, exp, sample) )
+        
+        #Map to other refs, the structure of the directories is going to be:
+        #outdir/
+        #   otherRefs/
+        #       sampleNA*/
+        #           hg19/
+        #           apd/
+        #           ...
+        refdir = os.path.join(options.outdir, "otherRefs")
+        system("mkdir -p %s" %refdir)
+        for sample in samples:
+            sampleDir = os.path.join(refdir, sample)
+            readdir = os.path.join(self.options.readdir, sample)
+            system("mkdir -p %s" %sampleDir)
+            for ref in self.options.refs:
+                rdir = os.path.join(sampleDir, ref)
+                system("mkdir -p %s" %rdir)
+                self.addChildTarget( RunMapping(self.options, os.path.join(self.options.refdir, ref), rdir, readdir) )
+
+        #Done mapping, now drawPlots
         self.setFollowOnTarget( Plots(options.outdir, os.path.join(options.outdir, "plots"), options.cleanup) )
 
 class Plots(Target):
@@ -80,9 +100,10 @@ class RunExperiment(Target):
         #Map to cactus ref:
         cactusRefDir = os.path.join(expdir, "cactusRef")
         self.addChildTarget( RunMapping(self.options, globalCactusRef, cactusRefDir, readdir) )
+
         #Map to hg19
-        hg19Dir = os.path.join(expdir, "hg19")
-        self.addChildTarget( RunMapping(self.options, self.options.ref, hg19Dir, readdir) )
+        #hg19Dir = os.path.join(expdir, "hg19")
+        #self.addChildTarget( RunMapping(self.options, self.options.ref, hg19Dir, readdir) )
 
 
 class RunMapping(Target):
@@ -98,9 +119,23 @@ class RunMapping(Target):
         self.readdir = readdir
 
     def run(self):
+        #HACK
+        #if re.search("hg19.fai", self.refseq):
+        #    return
+        #END HACK
+        #======HACK=====
+        if os.path.exists( os.path.join(self.outdir, "illumina", "mergeSorted.bam") ):
+            options = copy.copy(self.options)
+            options.refseq = self.refseq
+            self.addChildTarget( Snp(os.path.join(self.outdir, "illumina"), options) )
+            return
+        #=====END HACK=====
+
         globalTempDir = self.getGlobalTempDir()
         options = copy.copy( self.options )
         system("mkdir -p %s" %self.outdir)
+        #Copy cactusRef.fa to cactusRef dir:
+        system("cp %s* %s" %(self.refseq, self.outdir))
 
         #Run bwa index:
         refpath = os.path.join( globalTempDir, "bwaRef" )
@@ -172,6 +207,13 @@ class CombineResults(Target):
         if not self.options.ignoreSolid:
             exps.append('abi_solid')
         types = ['single', 'paired']
+
+        #======HACK=====
+        if os.path.exists( os.path.join(outdir, "illumina", "mergeSorted.bam") ):
+            self.addChildTarget( Snp(os.path.join(outdir, "illumina"), self.options) )
+            return
+        #=====END HACK=====
+
         outfile = os.path.join(outdir, "summaryStats.txt")
         header = ""
         outfh = open(outfile, "w")
@@ -206,12 +248,21 @@ class CombineResults(Target):
                                 sumcounts[j -1] += int( items[j].split()[0] )
                     f.close()
         
+            #=====Merge the bams======:
+            if self.options.getMappedReads:
+                bamfiles = []
+                for type in types:
+                    bamfile = os.path.join(outdir, exp, type, "merge.bam")
+                    bamfiles.append( bamfile )
+                self.addChildTarget( MergeBams2(os.path.join(outdir, exp), self.options, bamfiles) )
+            #=========End Merging bams========
+            
         outfh.write("Total\t%d" %sumcounts[0])
         for c in range( 1, len(sumcounts) ):
             #outfh.write("\t%d" %(sumcounts[c]))
             outfh.write("\t%d (%.2f)" %(sumcounts[c], sumcounts[c]*100.0/sumcounts[0]))
         outfh.write("\n")
-
+        
 class SolidSingle(Target):
     def __init__(self, options, refpath):
         Target.__init__(self)
@@ -381,7 +432,7 @@ class RunBwaPaired(Target):
         
         bamfile = os.path.join(localTempDir, "%s-Mapped.bam" %self.name)
         #system("bwa sampe -n 100 -a %d %s %s %s %s %s > %s" % (self.maxInsert, reffile, sai1, sai2, reads1, reads2, samfile))
-        system("bwa sampe -n 100 -a %d %s %s %s %s %s | samtools view -S -b - > %s" % (self.maxInsert, reffile, sai1, sai2, reads1, reads2, bamfile))
+        system("bwa sampe -n 10000 -N 10000 -a %d %s %s %s %s %s | samtools view -S -b - > %s" % (self.maxInsert, reffile, sai1, sai2, reads1, reads2, bamfile))
             
         globalBamfile = os.path.join(globalTempDir, "%s.bam" %self.name)
         system("mv %s %s" %(bamfile, globalBamfile))
@@ -436,7 +487,7 @@ class RunBwaSingle(Target):
             system("bwa aln -t %d %s %s > %s" %(self.options.numBwaThreads, reffile, reads, sai) )
 
         bamfile = os.path.join(localTempDir, "%s-Mapped.bam" %self.name)
-        system("bwa samse -n 100 %s %s %s | samtools view -S -b - > %s " % ( reffile, sai, reads, bamfile ))
+        system("bwa samse -n 10000 %s %s %s | samtools view -S -b - > %s " % ( reffile, sai, reads, bamfile ))
         globalBamfile = os.path.join(globalTempDir, "%s.bam" %self.name)
         system("mv %s %s" %(bamfile, globalBamfile))
 
@@ -638,6 +689,8 @@ class MergeBams(Target):
 
     def run(self):
         files = os.listdir(self.indir)
+        if "merge.bam" in files:
+            return
         count = 0
         bams = []
         for f in files:
@@ -677,24 +730,65 @@ class MergeBams(Target):
         #Get Snps info:
         self.setFollowOnTarget( Snp(self.indir, self.options) )
 
+class MergeBams2(Target):
+    def __init__(self, outdir, options, files):
+        Target.__init__(self)
+        self.outdir = outdir
+        self.options = options
+        self.files = files
+
+    def run(self):
+        localTempDir = self.getLocalTempDir()
+        i = 0
+        localfiles = []
+        for f in self.files:
+            if not os.path.exists(f): #HACK
+                continue
+            localname = os.path.join(localTempDir, "%s%d.bam" %(os.path.basename(f).split('.')[0], i))
+            system("scp -C %s %s" %(f, localname))
+            localfiles.append(localname)
+            i += 1
+        mergeFile = os.path.join(localTempDir, "merge.bam")
+        if len(localfiles) == 1:
+            system("mv %s %s" %(localfiles[0], mergeFile))
+        else:
+            bamStr = " ".join(localfiles)
+            logger.info("Merging bams...\n")
+            mergeCmd = "samtools merge %s %s" %(mergeFile, bamStr)
+            system( mergeCmd )
+        
+        sortPrefix = os.path.join(localTempDir, "mergeSorted")
+        sortCmp = "samtools sort %s %s" %( mergeFile, sortPrefix )
+        system( sortCmp )
+        
+        system( "cp %s.bam %s" %(sortPrefix, self.outdir) )
+        #Get Snps info:
+        self.setFollowOnTarget( Snp(self.outdir, self.options) )
+
 class Snp(Target):
     def __init__(self, dir, options):
         Target.__init__(self)
         self.dir = dir
         self.options = options
-
+    
     def run(self):
         localTempDir = self.getLocalTempDir()
-        system("cp %s* %s" %(self.options.refseq, localTempDir))
-        system("cp %s %s" %(os.path.join(self.dir, "merge.bam"), localTempDir))
-        #system("cp %s %s" %(os.path.join(self.dir, "sortedMerge.bam"), localTempDir))
+        refseq = os.path.join( self.dir, "..", os.path.basename(self.options.refseq) )
+        #HACK:
+        if not os.path.exists(refseq):
+            return
+        system("cp %s* %s" %(refseq, localTempDir))
+        sortPrefix = os.path.join(localTempDir, "mergeSorted")
         vcfFile = os.path.join(localTempDir, "merge.vcf")
+        if os.path.exists( os.path.join(self.dir, "mergeSorted.bam") ):
+            system("cp %s %s" %(os.path.join(self.dir, "mergeSorted.bam"), localTempDir))
+        else:
 
-        sortPrefix = os.path.join(localTempDir, "sortedMerge")
-        sortCmp = "samtools sort %s %s" %( os.path.join(localTempDir, "merge.bam"), sortPrefix )
-        system( sortCmp )
+            system("cp %s %s" %(os.path.join(self.dir, "merge.bam"), localTempDir))
+            sortCmp = "samtools sort %s %s" %( os.path.join(localTempDir, "merge.bam"), sortPrefix )
+            system( sortCmp )
 
-        cmd = "samtools mpileup %s -f %s -g | bcftools view -v - > %s" %(os.path.join(localTempDir, "sortedMerge.bam"), os.path.join(localTempDir, os.path.basename(self.options.refseq)), vcfFile)
+        cmd = "samtools mpileup %s.bam -f %s -g | bcftools view -v -I - > %s" %( sortPrefix, os.path.join(localTempDir, os.path.basename(self.options.refseq)), vcfFile)
         system(cmd)
         snpcountfile = os.path.join(localTempDir, "snpcount.txt")
         system("grep -vc '^#' %s  > %s" %(vcfFile, snpcountfile))
@@ -702,7 +796,6 @@ class Snp(Target):
         #Move files back to dir:
         system("mv %s %s" %(vcfFile, self.dir))
         system("mv %s %s" %(snpcountfile, self.dir))
-
 
 def getfiles(pattern, indir):
     files = []
@@ -847,10 +940,13 @@ def initOptions( parser ):
 def checkOptions( options, args, parser ):
     if len(args) == 0 and options.bwaRefIndex == None:
         parser.error("No reference sequence or reference index was given.\n")
-    elif len(args) > 0 and not os.path.exists(args[0]):
-        parser.error("Reference file %s does not exist.\n" %args[0])
     elif len(args) > 0:
-        options.ref = args[0]
+        if not os.path.exists( args[0] ) or not os.path.isdir( args[0] ):
+            parser.error("Reference directory %s does not exist.\n" %args[0])
+        options.refs = os.listdir( args[0] )
+        options.refdir = args[0]
+    #elif len(args) > 0:
+    #    options.ref = args[0]
     
     if not os.path.exists( options.outdir ):
         system("mkdir -p %s" %options.outdir)

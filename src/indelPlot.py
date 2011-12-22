@@ -83,50 +83,75 @@ def drawPlot( options, samples1, samples2, type ):
     if len( samples1 ) < 1:
         return
     
+    #remove chimpSample:
+    chimpSample = None
+    for i, s in enumerate(samples1):
+        if s.name == 'panTro3':
+            chimpSample = samples1.pop(i)
+            break
+
     refname1 = samples1[0].refname
     refname2 = samples2[0].refname
 
     y1data = [ s.ins for s in samples1 ]
     if type == 'deletion':
         y1data = [ s.dels for s in samples1 ]
-    
     xticklabels = [ s.name for s in samples1 ]
+    
+    #indel of refname1 w.r.t itself (0)
+    y1data.append(0)
+    xticklabels.append(refname1)
+
     y2data = []
     for name in xticklabels:
+        if name == refname2:#indel of refname2 w.r.t itself (0)
+            y2data.append(0)
         for s in samples2:
-            if s.name == name or (name == refname2 and s.name == refname1):
+            if s.name == name:
                 if type == 'insertion':
                     y2data.append(s.ins)
                 else:
                     y2data.append(s.dels)
                 break
+    
     if len(xticklabels) != len(y2data):
         sys.stderr.write("Input file 1 and 2 do not have the same set of samples\n")
         sys.exit( 1 )
 
-    for i in range(len(xticklabels)):
-        if xticklabels[i] == refname2:
-            xticklabels[i] = "ref/hg19"
-    
     #add the average column:
     num = 1
-    y1avr = sum(y1data[num:])/float(len(y1data) - num)
+    y1avr = sum(y1data)/float(len(y1data) - 1)
     y1data.append(y1avr)
     xticklabels.append('average')
-    y2avr = sum(y2data[num:])/float(len(y2data) - num)
+    y2avr = sum(y2data)/float(len(y2data) - 1)
     y2data.append(y2avr)
+    print "%s Average: %s %f, %s %f" %(type, refname1, y1avr, refname2, y2avr)
+
+    #Add chimp:
+    samples1.append(chimpSample)
+    if type == 'insertion':
+        y1data.append( chimpSample.ins )
+    else:
+        y1data.append( chimpSample.dels )
+    for s in samples2:
+        if s.name == 'panTro3':
+            if type == 'insertion':
+                y2data.append(s.ins)
+            else:
+                y2data.append(s.dels)
+    xticklabels.append("panTro3")
 
     minMajority = min( [min(y2data), min(y1data)] ) - 0.0001
     maxMajority = max( [max(y2data), max(y1data)] ) + 0.0001
 
     basename = os.path.basename(options.files[0])
     options.out = os.path.join( options.outdir, '%s_%s' %( type, basename.lstrip('pathStats').lstrip('_').rstrip('.xml') ) )
-    fig, pdf = libplot.initImage( 8.0, 10.0, options )
+    fig, pdf = libplot.initImage( 11.2, 10.0, options )
     #ax, ax2 = setAxes(fig, maxOutlier - minOutlier, maxMajority - minMajority)
     ax2 = fig.add_axes( [0.15, 0.15, 0.8, 0.8] )
 
-    l2 = ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
-    l1 = ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    l2 = ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    l1 = ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
     
     #Legend
     fontP = FontProperties()
@@ -156,10 +181,10 @@ def drawPlot( options, samples1, samples2, type ):
     title = 'Deletions'
     #if type == 'insertion':
     if type == 'insertion':
-        ax2.set_ylabel( 'Insertion per site' )
+        ax2.set_ylabel( 'Insertions per site' )
         title = 'Insertions'
     else:
-        ax2.set_ylabel( 'Deletion per site' )
+        ax2.set_ylabel( 'Deletions per site' )
     ax2.set_title( title )
     
     libplot.writeImage( fig, pdf, options )

@@ -11,6 +11,9 @@ indir/
                     snpcount.txt
                 single/
                     snpcount.txt
+                merge.bam
+                snpcount.txt
+                mergeSorted.bam (use this to generate the pileup file, which gives the total number of bases the mapped reads cover)
             summaryStats.txt
         hg19/
             same structure with CactusRef
@@ -38,10 +41,11 @@ class Experiment():
             return None
         self.sample = items[2]
         l = items[1].split('-')
-        if len(l) < 3:
-            sys.stderr.write('Experiment name has unexpected format\n')
-            return None
-        self.weight = int(l[2] )
+        self.weight = 0
+        if len(l) >= 3:
+            self.weight = int(l[2])
+            #sys.stderr.write('Experiment name has unexpected format\n')
+            #return None
         self.ref = ref
         #Initializing the stats:
         self.total = 0
@@ -52,6 +56,15 @@ class Experiment():
         self.properlyPaired = 0
         self.uniquelyMappedAndProperlyPaired = 0
         self.snps = 0
+        self.totalbases = 0
+
+        #Single & paired stats:
+        self.singleMapped = 0
+        self.singleUniquelyMapped = 0
+        self.pairedMapped = 0
+        self.pairedUniquelyMapped = 0
+        self.pairedProperlyPaired = 0
+        self.pairedUniquelyMappedAndProperlyPaired = 0
 
     def __cmp__(self, other):
         if self.ref < other.ref:
@@ -67,7 +80,6 @@ class Experiment():
                 return 1
     
     def updateStats( self, file ):
-        #sys.stderr.write("\nupdateStats, %s, %s, %d, %d, %d, %d, %d. File %s\n" %(self.sample, self.ref, self.weight, self.mapped, self.uniquelyMapped, self.properlyPaired, self.uniquelyMappedAndProperlyPaired, file))
         if not os.path.exists(file):
             return
         f = open(file, 'r')
@@ -80,27 +92,26 @@ class Experiment():
                 for i, item in enumerate(items):
                     fields[ item.strip() ] = i
             elif len(items) > 0 and items[0] != 'Total':
-                #HACK
-                #total = int( items[ fields['Total'] ] )
-                #mapped = int( (items[ fields['Mapped'] -1].split())[0] )
-                #umapped = int( (items[ fields['UniquelyMapped'] -1 ].split())[0] )
-                #ppaired = int( (items[ fields['ProperlyPaired'] -1 ].split())[0] )
-                #uppaired = int( (items[ fields['WithItselftAndMateUniquelyMappedAndProperlyPaired'] -1 ].split())[0] )
-                #END HACK
-
                 total = int( items[ fields['Total'] ] )
                 mapped = int( (items[ fields['Mapped'] ].split())[0] )
                 umapped = int( (items[ fields['UniquelyMapped'] ].split())[0] )
                 ppaired = int( (items[ fields['ProperlyPaired'] ].split())[0] )
                 uppaired = int( (items[ fields['WithItselftAndMateUniquelyMappedAndProperlyPaired'] ].split())[0] )
                 
-                #sys.stderr.write("mapped %d, umapped: %d, ppaired %d, uppaired %d\n" %(mapped, umapped, ppaired, uppaired))
                 if re.search('single', items[0]):
                     self.single += total 
+                    self.singleMapped += mapped
+                    self.singleUniquelyMapped += umapped
+
                 elif re.search('paired', items[0]):
                     self.paired += total
                     self.properlyPaired += ppaired
                     self.uniquelyMappedAndProperlyPaired += uppaired
+                    
+                    self.pairedMapped += mapped
+                    self.pairedUniquelyMapped += umapped
+                    self.pairedProperlyPaired += ppaired
+                    self.pairedUniquelyMappedAndProperlyPaired += uppaired
                 self.total += total
                 self.mapped += mapped
                 self.uniquelyMapped += umapped
@@ -112,6 +123,24 @@ class Experiment():
         for l in f:
             self.snps += int(l.strip())
         f.close()
+
+    def getTotalBases(self, dir, file):
+        pileupFile = os.path.join(dir, "mergePileup.txt")
+        totalCountFile = os.path.join(dir, "tempPileupCount.txt")
+        if not os.path.exists(pileupFile):
+            system("samtools mpileup %s > %s" %(file, pileupFile))
+
+        if not os.path.exists(totalCountFile):
+            system("cat %s | grep -vc '^#' > %s" %(pileupFile, totalCountFile))
+        f = open(totalCountFile, 'r')
+        line = f.readline()
+        f.close()
+        self.totalbases = int(line.strip())
+        self.snprate = 0.0
+        if self.totalbases > 0:
+            self.snprate = float(self.snps)/self.totalbases
+        #sys.stderr.write("%s\t%d\t%f\n" %(dir, self.totalbases, self.snprate))
+        #system("rm %s" %totalCountFile)
 
 def getExpSets(indir):
     dirs = os.listdir( indir )
@@ -130,6 +159,105 @@ def getExpSets(indir):
                 expSets[i].append(d)
     return expSets, names
                 
+def getRefStats(indir):
+    exps = {} #key = ref(e.g hg19, apd...), val = {} in which key = sample, val = list of Experiment instances
+    samples = os.listdir(indir)
+    for sample in samples:
+        sampledir = os.path.join(indir, sample)
+        if not os.path.isdir( sampledir ):
+            continue
+        refs = os.listdir( sampledir )
+        for ref in refs:
+            rpath = os.path.join(sampledir, ref)
+            if not os.path.isdir( rpath ):
+                continue
+
+            dummyExpname = 'ref_%s_%s' %(ref, sample)
+            exp = Experiment(dummyExpname, ref)
+
+            sumFile = os.path.join( rpath, 'summaryStats.txt' )
+            snpFiles = []
+            bamfile = ''
+            tpath = ''
+            for tech in os.listdir( rpath ):
+                techpath = os.path.join( rpath, tech )
+                if os.path.isdir( techpath ):
+                    snpFiles.append( os.path.join(techpath, 'snpcount.txt') )
+                    bamfile =  os.path.join(techpath, 'mergeSorted.bam')
+                    tpath = techpath
+                    #for type in os.listdir( techpath ):
+                    #    if type in ['single', 'paired']:
+                    #        snpFiles.append( os.path.join(techpath, type, 'snpcount.txt') )
+                
+            exp.updateStats( sumFile )
+            for snpFile in snpFiles:
+                exp.updateSnpCount( snpFile )
+            exp.getTotalBases(tpath, bamfile)
+           
+            if ref not in exps:
+                exps[ref] = { sample:exp }
+            else:
+                if sample in exps[ref]:
+                    sys.stderr.write("Ref %s has repeated sample %s\n" %(ref, sample))
+                exps[ref][sample] = exp
+    
+    #Get average:
+    for r in exps.keys():
+        rexps = exps[r]
+        samples = copy.copy( rexps.keys() )
+        for s in samples:
+            exp = rexps[s]
+            if 'average' not in rexps:
+                avrExp = copy.copy( exp )
+                avrExp.sample = 'average'
+                rexps['average'] = avrExp
+            else:
+                rexps['average'].total += exp.total
+                rexps['average'].single += exp.single
+                rexps['average'].paired += exp.paired
+                rexps['average'].mapped += exp.mapped
+                rexps['average'].uniquelyMapped += exp.uniquelyMapped
+                rexps['average'].properlyPaired += exp.properlyPaired
+                rexps['average'].uniquelyMappedAndProperlyPaired += exp.uniquelyMappedAndProperlyPaired
+                #rexps['average'].snps += exp.snps
+                #rexps['average'].totalbases += exp.totalbases
+                rexps['average'].snprate += exp.snprate
+                
+                rexps['average'].singleMapped += exp.singleMapped
+                rexps['average'].singleUniquelyMapped += exp.singleUniquelyMapped
+                rexps['average'].pairedMapped += exp.pairedMapped
+                rexps['average'].pairedUniquelyMapped += exp.pairedUniquelyMapped
+                rexps['average'].pairedProperlyPaired += exp.pairedProperlyPaired
+                rexps['average'].pairedUniquelyMappedAndProperlyPaired += exp.pairedUniquelyMappedAndProperlyPaired
+                        
+        rexps['average'].total /= len(samples)
+        rexps['average'].single /= len(samples)
+        rexps['average'].paired /=len(samples)
+        rexps['average'].mapped /= len(samples)
+        rexps['average'].uniquelyMapped /= len(samples)
+        rexps['average'].properlyPaired /= len(samples)
+        rexps['average'].uniquelyMappedAndProperlyPaired /= len(samples)
+        #rexps['average'].snps /= len(samples)
+        rexps['average'].snprate /= len(samples)
+        rexps['average'].singleMapped /= len(samples)
+        rexps['average'].singleUniquelyMapped /= len(samples)
+        rexps['average'].pairedMapped /= len(samples)
+        rexps['average'].pairedUniquelyMapped /= len(samples)
+        rexps['average'].pairedProperlyPaired /= len(samples)
+        rexps['average'].pairedUniquelyMappedAndProperlyPaired /= len(samples)
+    
+        sys.stderr.write("%s\n" %r)
+        sys.stderr.write('SingleReads: %d\t' %rexps['average'].single)
+        sys.stderr.write('singleMapped: %f\t' %rexps['average'].singleMapped)
+        sys.stderr.write('uiniquelyMapped: %f\n' %rexps['average'].uniquelyMapped)
+        sys.stderr.write('PairedReads: %d\t' %rexps['average'].paired)
+        sys.stderr.write('pairedMapped: %f\t' %rexps['average'].pairedMapped)
+        sys.stderr.write('pairedUniquelyMapped: %f\t' %rexps['average'].pairedUniquelyMapped)
+        sys.stderr.write('pairedProperlyPaired: %f\t' %rexps['average'].pairedProperlyPaired)
+        sys.stderr.write('pairedUniquelyProperlyPaired: %f\n' %rexps['average'].pairedUniquelyMappedAndProperlyPaired)
+
+    return exps
+
 def getStats(indir, dirs):
     #dirs = os.listdir( indir )
     exps = {} #key = sample, val = list of Experiment instances
@@ -152,12 +280,17 @@ def getStats(indir, dirs):
 
             sumFile = os.path.join( rpath, 'summaryStats.txt' )
             snpFiles = []
+            bamfile = ''
+            tpath = ''
             for tech in os.listdir( rpath ):
                 techpath = os.path.join( rpath, tech )
                 if os.path.isdir( techpath ):
-                    for type in os.listdir( techpath ):
-                        if type in ['single', 'paired']:
-                            snpFiles.append( os.path.join(techpath, type, 'snpcount.txt') )
+                    snpFiles.append( os.path.join(techpath, 'snpcount.txt') )
+                    bamfile =  os.path.join(techpath, 'mergeSorted.bam')
+                    tpath = techpath
+                    #for type in os.listdir( techpath ):
+                    #    if type in ['single', 'paired']:
+                    #        snpFiles.append( os.path.join(techpath, type, 'snpcount.txt') )
             
             #if exp.sample in exps and (exp.ref, exp.weight) in [ (e.ref, e.weight) for e in exps[exp.sample] ]:
             if exp.sample in exps and exp.ref in [ e.ref for e in exps[exp.sample] ] and exp.ref == 'hg19':
@@ -166,6 +299,7 @@ def getStats(indir, dirs):
                 exp.updateStats( sumFile )
                 for snpFile in snpFiles:
                     exp.updateSnpCount( snpFile )
+                exp.getTotalBases(tpath, bamfile)
                 if exp.sample not in exps:
                     exps[ exp.sample ] = [exp]
                 else:
@@ -189,7 +323,16 @@ def getStats(indir, dirs):
                 aggExpList[i].uniquelyMapped += exp.uniquelyMapped
                 aggExpList[i].properlyPaired += exp.properlyPaired
                 aggExpList[i].uniquelyMappedAndProperlyPaired += exp.uniquelyMappedAndProperlyPaired
-                aggExpList[i].snps += exp.snps
+                #aggExpList[i].snps += exp.snps
+                aggExpList[i].snprate += exp.snprate
+                
+                aggExpList[i].singleMapped += exp.singleMapped
+                aggExpList[i].singleUniquelyMapped += exp.singleUniquelyMapped
+                aggExpList[i].pairedMapped += exp.pairedMapped
+                aggExpList[i].pairedUniquelyMapped += exp.pairedUniquelyMapped
+                aggExpList[i].pairedProperlyPaired += exp.pairedProperlyPaired
+                aggExpList[i].pairedUniquelyMappedAndProperlyPaired += exp.pairedUniquelyMappedAndProperlyPaired
+                
 
     for exp in exps['average']:
         exp.total /= len(samples)
@@ -199,28 +342,39 @@ def getStats(indir, dirs):
         exp.uniquelyMapped /= len(samples)
         exp.properlyPaired /= len(samples)
         exp.uniquelyMappedAndProperlyPaired /= len(samples)
-        exp.snps /= len(samples)
+        #exp.snps /= len(samples)
+        exp.snprate /= len(samples)
+
+        exp.singleMapped /= len(samples)
+        exp.singleUniquelyMapped /= len(samples)
+        exp.pairedMapped /= len(samples) 
+        exp.pairedUniquelyMapped /= len(samples)
+        exp.pairedProperlyPaired /= len(samples) 
+        exp.pairedUniquelyMappedAndProperlyPaired /= len(samples)
+
+        sys.stderr.write("%s, %d\n" %(exp.ref, exp.weight))
+        sys.stderr.write('SingleReads: %d\t' %exp.single)
+        sys.stderr.write('singleMapped: %f\t' % exp.singleMapped)
+        sys.stderr.write('uiniquelyMapped: %f\n' %exp.uniquelyMapped)
+        sys.stderr.write('PairedReads: %d\t' %exp.paired)
+        sys.stderr.write('pairedMapped: %f\t' %exp.pairedMapped)
+        sys.stderr.write('pairedUniquelyMapped: %f\t' %exp.pairedUniquelyMapped)
+        sys.stderr.write('pairedProperlyPaired: %f\t' %exp.pairedProperlyPaired)
+        sys.stderr.write('pairedUniquelyProperlyPaired: %f\n' %exp.pairedUniquelyMappedAndProperlyPaired)
                 
     return exps
 
 #================= PLOTS ====================
-def getData(samples, exps, name):
+def getData(samples, exps, rexps, name):
     #print "getData: samples: %s" %(','.join(samples))
     data = {} #key = refName, val = list of values cross samples
     
     for sample in samples:
         expList = exps[sample]
-        hg19exp = None
-        for e in expList:
-            if e.ref == 'hg19':
-                hg19exp = e
-                break
+        hg19exp = rexps[sample]
 
         for e in expList:
             refname = "%s%d" %(e.ref, e.weight)
-            if e.ref == 'hg19':
-                continue
-
             if refname not in data:
                 data[refname] = []
             
@@ -239,11 +393,13 @@ def getData(samples, exps, name):
                 val = e.uniquelyMappedAndProperlyPaired
                 hg19val = hg19exp.uniquelyMappedAndProperlyPaired
             elif name == 'snps':
-                val = e.snps
-                hg19val = hg19exp.snps
+                #val = e.snps
+                #hg19val = hg19exp.snps
+                val = e.snprate
+                hg19val = hg19exp.snprate
             
             if hg19val == 0:
-                sys.stderr.write('statistics for hg19 is 0.\n')
+                sys.stderr.write('%s: statistics for hg19 is 0.\n' %name)
                 data[refname].append( 0 )
             else:
                 data[refname].append( (val - hg19val)*100.0/float(hg19val) )
@@ -260,18 +416,14 @@ def getData(samples, exps, name):
 
     return data, miny, maxy
 
-def getData2(samples, exps, names):
+def getData2(samples, rexps, exps, names):
     data = {} #key = , val = list of values cross samples
     
     for name in names:
         data[name] = []
         for sample in samples:
             expList = exps[sample]
-            hg19exp = None
-            for e in expList:
-                if e.ref == 'hg19':
-                    hg19exp = e
-                    break
+            hg19exp = rexps[sample]
 
             for e in expList:
                 refname = "%s%d" %(e.ref, e.weight)
@@ -293,12 +445,14 @@ def getData2(samples, exps, names):
                     val = e.uniquelyMappedAndProperlyPaired
                     hg19val = hg19exp.uniquelyMappedAndProperlyPaired
                 elif name == 'snps':
-                    val = e.snps
-                    hg19val = hg19exp.snps
+                    #val = e.snps
+                    #hg19val = hg19exp.snps
+                    val = e.snprate
+                    hg19val = hg19exp.snprate
                 
                 if hg19val == 0:
                     sys.stderr.write('statistics for hg19 is 0.\n')
-                    data[refname].append( 0 )
+                    data[name].append( 0 )
                 else:
                     data[name].append( (val - hg19val)*100.0/float(hg19val) )
                 break
@@ -332,43 +486,49 @@ def getYticks(miny, maxy):
 
     return yticks, ylabels
 
-def drawSamplePlot(exps, options, outfile, type):
+def drawSamplePlot(rexps, exps, options, outfile, type):
     options.out = outfile
-    fig, pdf = libplot.initImage( 8.0, 10.0, options )
+    fig, pdf = libplot.initImage( 11.2, 10.0, options )
     axes = fig.add_axes( [0.14, 0.12, 0.8, 0.8] )
 
     #Set title:
-    axes.set_title( "SNP rate using bwa mapping" )
+    axes.set_title( "SNP Rate Using BWA Mapping" )
     
     sampleNsize = []
-    for sample in exps:
+    if len(rexps) < 1:
+        return
+    ref = ''
+        
+    for sample in rexps:
         if sample == 'average':
             continue
-        explist = exps[sample]
-        for e in explist:
-            if e.ref == 'hg19':
-                sampleNsize.append( (sample, e.snps) )
+        exp = rexps[sample]
+        ref = exp.ref
+        #sampleNsize.append( (sample, exp.snps) )
+        sampleNsize.append( (sample, exp.snprate) )
+    otherRefName = ref
 
     sampleNsize = sorted( sampleNsize, key=lambda item: item[1], reverse=True )
     samples = [ item[0] for item in sampleNsize]
     samples.append( 'average' )
 
     #Get ydata:
-    ydata1 = [] #hg19
+    ydata1 = [] #otherRef (hg19, apd, ...)
     ydata2 = [] #cactusRef2
     for sample in samples:
         explist = exps[sample]
+        otherRef = rexps[sample]
+        ydata1.append( otherRef.snprate )
         for e in explist:
             if e.ref == 'cactusRef' and e.weight == 2:
-                ydata2.append( e.snps )
-            elif e.ref == 'hg19':
-                ydata1.append( e.snps )
+                ydata2.append( e.snprate )
 
     miny = min([min(ydata1), min(ydata2)])
     maxy = max([max(ydata1), max(ydata2)])
 
     xdata = range( 0, len(samples) )
-    colors = ["#E31A1C", "#1F78B4"] #red, blue
+    #colors = ["#E31A1C", "#1F78B4"] #red, blue
+    colors = ["#1F78B4", "#E31A1C"] #red, blue
     scale = -1
     if miny > 1000:
         scale = len( str(int(miny)) ) - 1
@@ -401,45 +561,50 @@ def drawSamplePlot(exps, options, outfile, type):
     axes.yaxis.set_ticks_position( 'left' )
     axes.xaxis.set_ticks_position( 'bottom' )
     
-    legend = pyplot.legend( lines, [libplot.properName("hg19"), libplot.properName("cactusRef")], numpoints=1, loc='best', prop=fontP)
+    legend = pyplot.legend( lines, [libplot.properName(otherRefName), libplot.properName("cactusRef")], numpoints=1, loc='best', prop=fontP)
     legend._drawFrame = False
 
     axes.set_xlabel( 'Samples' )
-    axes.set_ylabel( 'Snp counts' )
+    axes.set_ylabel( 'SNPs Per Site' )
     if scale > 0:
         axes.set_ylabel( 'Snp counts (x%d)' %(10**scale) )
     axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
     axes.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
     libplot.writeImage( fig, pdf, options )
 
-def drawPlot(exps, options, outfile, type):
+def drawPlot(rexps, exps, options, outfile, type):
     options.out = outfile
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     axes = fig.add_axes( [0.12, 0.14, 0.85, 0.8] )
 
     #Set title:
-    titleDict = {'mapped':'Mapped reads', 'uniquelyMapped':'Uniquely Mapped Reads', 'properlyPaired':'Properly Paired Reads', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired Reads', 'snps':'Snps'}
+    titleDict = {'mapped':'Mapped reads', 'uniquelyMapped':'Uniquely Mapped Reads', 'properlyPaired':'Properly Paired Reads', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired Reads', 'snps':'SNPs'}
     axes.set_title( titleDict[type] )
     
-    sampleNhg19mapped = []
-    for sample in exps:
+    if len(rexps) < 1:
+        return
+    
+    sampleNotherRefmapped = []
+    ref = ''
+    for sample in rexps:
         if sample == 'average':
             continue
-        explist = exps[sample]
-        for e in explist:
-            if e.ref == 'hg19':
-                sampleNhg19mapped.append( (sample, e.total) )
-
-    sampleNhg19mapped = sorted( sampleNhg19mapped, key=lambda item: item[1], reverse=True )
-    samples = [ item[0] for item in sampleNhg19mapped]
+        exp = rexps[sample]
+        ref = exp.ref
+        sampleNotherRefmapped.append( (sample, exp.total) )
+    otherRefName = libplot.properName( ref )
+    
+    sampleNotherRefmapped = sorted( sampleNotherRefmapped, key=lambda item: item[1], reverse=True )
+    samples = [ item[0] for item in sampleNotherRefmapped]
     samples.append( 'average' )
 
     xdata = range( 0, len(samples) )
-    colors = libplot.getColors0()
+    colors = libplot.getColors4()
     #c = -1
     c = 0
     lines = []
-    ydataList, miny, maxy = getData(samples, exps, type)
+    ydataList, miny, maxy = getData(samples, exps, rexps, type)
+    #print ydataList
     
     refs = sorted( ydataList.keys() )
     #miny = float('inf')
@@ -524,7 +689,7 @@ def drawPlot(exps, options, outfile, type):
     legend._drawFrame = False
 
     axes.set_xlabel( 'Samples' )
-    axes.set_ylabel( 'Percentage of mapping difference between consensus ref and GRCh37' )
+    axes.set_ylabel( 'Percentage of mapping difference between C. Ref. and %s' % otherRefName)
     if scale > 0:
         axes.set_ylabel( 'Event counts (x%d)' %(10**scale) )
     #axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
@@ -532,36 +697,41 @@ def drawPlot(exps, options, outfile, type):
     libplot.writeImage( fig, pdf, options )
 
 #============draw catusRef2:
-def drawRef2(exps, options, outfile):
+def drawRef2(rexps, exps, options, outfile, numCats):
     options.out = outfile
     fig, pdf = libplot.initImage( 8.0, 10.0, options )
     axes = fig.add_axes( [0.12, 0.14, 0.85, 0.8] )
 
-    #Set title:
-    axes.set_title("Mapability of the consensus reference in comparison to GRCh37")
+    if len(rexps) < 1:
+        return
     
-    sampleNhg19mapped = []
-    for sample in exps:
+    sampleNotherRefmapped = []
+    ref = ''
+    for sample in rexps:
         if sample == 'average':
             continue
-        explist = exps[sample]
-        for e in explist:
-            if e.ref == 'hg19':
-                sampleNhg19mapped.append( (sample, e.total) )
+        e = rexps[sample]
+        ref = e.ref
+        sampleNotherRefmapped.append( (sample, e.total) )
 
-    sampleNhg19mapped = sorted( sampleNhg19mapped, key=lambda item: item[1], reverse=True )
-    samples = [ item[0] for item in sampleNhg19mapped]
+    otherRefName = libplot.properName( ref )
+    #Set title:
+    #axes.set_title("Mapability of C. Ref. in Comparison to %s" % otherRefName)
+    #HACK
+    axes.set_title("Mapability of C. Ref. in Comparison to GRCh37 haplotypes")
+    sampleNotherRefmapped = sorted( sampleNotherRefmapped, key=lambda item: item[1], reverse=True )
+    samples = [ item[0] for item in sampleNotherRefmapped]
     samples.append( 'average' )
 
     xdata = range( 0, len(samples) )
-    colors = libplot.getColors0()
+    colors = libplot.getColors4()
     c = -1
     #c = 0
     lines = []
     #titleDict = {'mapped':'Mapped', 'uniquelyMapped':'Uniquely Mapped', 'properlyPaired':'Properly Paired', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired', 'snps':'Snp'}
     titleDict = {'mapped':'Mapped', 'properlyPaired':'Properly Paired', 'uniquelyMapped':'Uniquely Mapped', 'uniquelyMappedAndProperlyPaired':'Uniquely Mapped And Properly Paired'}
-    ydataList, miny, maxy = getData2(samples, exps, titleDict.keys())
-    ydataList, miny, maxy = getData2(samples, exps, titleDict.keys())
+    ydataList, miny, maxy = getData2(samples, rexps, exps, titleDict.keys())
+    #ydataList, miny, maxy = getData2(samples, exps, titleDict.keys())
     
     #refs = sorted( ydataList.keys() )
     offset = 0.12
@@ -570,7 +740,9 @@ def drawRef2(exps, options, outfile):
         scale = len( str(int(miny)) ) - 1
 
     linenames = []
-    for i, key in enumerate( ['mapped', 'properlyPaired', 'uniquelyMapped', 'uniquelyMappedAndProperlyPaired'] ):
+    categories = ["mapped", "properlyPaired", "uniquelyMapped", "uniquelyMappedAndProperlyPaired"]
+    cats = categories[:numCats]
+    for i, key in enumerate( cats ):
         xdatai = [ x + offset*i for x in xdata ]
         ydata = ydataList[key]
         if scale > 0:
@@ -606,6 +778,8 @@ def drawRef2(exps, options, outfile):
     
     axes.set_xlim(xmin, xmax )
     axes.set_ylim( miny, maxy )
+    #HACK:
+    #axes.set_ylim( -2, 0 )
     libplot.editSpine( axes )
 
     axes.set_xticks( [ i + offset*(len(linenames)/2.0) for i in range(0, len(samples))] )
@@ -615,11 +789,12 @@ def drawRef2(exps, options, outfile):
     axes.xaxis.set_ticks_position( 'bottom' )
     axes.yaxis.set_ticks_position( 'left' )
     
-    legend = pyplot.legend( lines, linenames, numpoints=1, loc='best', prop=fontP)
+    legend = pyplot.legend( lines, linenames, numpoints=1, loc='upper right', prop=fontP)
     legend._drawFrame = False
 
     axes.set_xlabel( 'Samples' )
-    axes.set_ylabel( 'Percentage of mapping difference between consensus ref and GRCh37' ) #NEED TO DO
+    axes.set_ylabel( 'Percentage of mapping difference between C. Ref. and %s' % otherRefName) #NEED TO DO
+    #axes.set_ylabel( 'Percentage of mapping difference between C. Ref. and GRCh37 haplotypes')
     if scale > 0:
         axes.set_ylabel( 'Event counts (x%d)' %(10**scale) )
     #axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
@@ -627,27 +802,28 @@ def drawRef2(exps, options, outfile):
     libplot.writeImage( fig, pdf, options )
 
 
-def drawPlots(options, outdir, exps):
+def drawPlots(options, outdir, exps, rexps):
     mappedFile = os.path.join(outdir, 'mappingStats-mapped')
-    drawPlot(exps, options, mappedFile, "mapped")
+    drawPlot(rexps, exps, options, mappedFile, "mapped")
 
     umappedFile = os.path.join(outdir, "mappingStats-uniqMapped")
-    drawPlot(exps, options, umappedFile, "uniquelyMapped")
+    drawPlot(rexps, exps, options, umappedFile, "uniquelyMapped")
 
     ppairedFile = os.path.join(outdir, "mappingStats-properlyPaired")
-    drawPlot(exps, options, ppairedFile, 'properlyPaired')
+    drawPlot(rexps, exps, options, ppairedFile, 'properlyPaired')
 
     uppairedFile = os.path.join(outdir, "mappingStats-uniqProperlyPaired")
-    drawPlot(exps, options, uppairedFile, 'uniquelyMappedAndProperlyPaired')
+    drawPlot(rexps, exps, options, uppairedFile, 'uniquelyMappedAndProperlyPaired')
 
     snpFile = os.path.join(outdir, "mappingStats-snp")
-    drawPlot(exps, options, snpFile, 'snps')
+    drawPlot(rexps, exps, options, snpFile, 'snps')
 
     file = os.path.join(outdir, "mappingStats-snpSingle")
-    drawSamplePlot(exps, options, file, 'snps')
+    drawSamplePlot(rexps, exps, options, file, 'snps')
 
-    file = os.path.join(outdir, "mappingStats-consensusRef2")
-    drawRef2(exps, options, file)
+    for i in [1,2,3,4]:
+        file = os.path.join(outdir, "mappingStats-consensusRef2-%d" %i)
+        drawRef2(rexps, exps, options, file, i)
 
 #================= LATEX TABLE ===============
 def tabheader(f, title):
@@ -661,10 +837,11 @@ def tabheader(f, title):
     f.write("Sample & Ref & Mapped & UniqMapped & PropPaired & UniqPropPaired & Snp\\\\\n")
     f.write("\\hline\n")
 
-def tab( f, exps, samples ):
+def tab( f, exps, rexps, samples ):
     for sample in samples:
-        expList = exps[sample]
+        expList = copy.copy(exps[sample])
         expList.sort()
+        expList.append( rexps[sample] )
         #sys.stderr.write('expList for sample %s: %s\n' %(sample, '\t'.join([ '%s%d' %(e.ref, e.weight)for e in expList])))
         
         f.write( "\\multirow{%d}{*}{%s} " %( len(expList), sample ) )
@@ -677,7 +854,7 @@ def tab( f, exps, samples ):
                 r = e.ref.lstrip('cactusRef')
                 ref = "%s %s" % (libplot.properName('cactusRef'), r)
 
-            if e.ref == 'hg19':
+            if e.ref != 'cactusRef':
                 f.write("& %s & %s & %s & %s & %s & %s \\\\\n" %(ref, libplot.prettyInt(e.mapped), libplot.prettyInt(e.uniquelyMapped), libplot.prettyInt(e.properlyPaired), libplot.prettyInt(e.uniquelyMappedAndProperlyPaired), libplot.prettyInt(e.snps)))
             elif e.ref == 'cactusRef' and e.weight == 2:
                 f.write("& \\cellcolor{cyan!30} %s%d & \\cellcolor{cyan!30} %s & \\cellcolor{cyan!30} %s & \\cellcolor{cyan!30} %s & \\cellcolor{cyan!30} %s & \\cellcolor{cyan!30} %s \\\\\n" %(ref, e.weight, libplot.prettyInt(e.mapped), libplot.prettyInt(e.uniquelyMapped), libplot.prettyInt(e.properlyPaired), libplot.prettyInt(e.uniquelyMappedAndProperlyPaired), libplot.prettyInt(e.snps)))
@@ -685,7 +862,7 @@ def tab( f, exps, samples ):
                 f.write("& %s%d & %s & %s & %s & %s & %s \\\\\n" %(ref, e.weight, libplot.prettyInt(e.mapped), libplot.prettyInt(e.uniquelyMapped), libplot.prettyInt(e.properlyPaired), libplot.prettyInt(e.uniquelyMappedAndProperlyPaired), libplot.prettyInt(e.snps)))
         f.write("\\hline\n")
 
-def makeLatexTab( outfile, exps ):
+def makeLatexTab( outfile, exps, rexps ):
     f = open(outfile, 'w')
     libplot.writeDocumentStart( f )
     title = "Mapping Stats"
@@ -697,7 +874,7 @@ def makeLatexTab( outfile, exps ):
     samples.sort()
     samples.append('average')
 
-    tab( f, exps, samples )
+    tab( f, exps, rexps, samples )
     captionStr = "" 
     label = ""
     libplot.tableCloser(f, captionStr, label)
@@ -709,6 +886,7 @@ def makeLatexTab( outfile, exps ):
 def initOptions( parser ):
     parser.add_option('-i', '--indir', dest='indir', help='Input directory. Required argument.')
     parser.add_option('-o', '--outdir', dest='outdir', help='Output directory. Default = ./mapStats')
+    #parser.add_option('-r', '--refs', dest='refs', help='Comma separated list of refs', default='hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter')
     #parser.add_option()
 
 def checkOptions( args, options, parser ):
@@ -718,7 +896,8 @@ def checkOptions( args, options, parser ):
         parser.error('Input directory does not exist.\n')
     if options.outdir == None:
         options.outdir = os.path.join( os.getcwd(), "mapStats" )
-    system("mkdir -p %s" % options.outdir)
+    #options.refs = options.refs.split(',')
+    #system("mkdir -p %s" % options.outdir)
 
 def main():
     usage = "mappingPlot.py [options]"
@@ -729,15 +908,34 @@ def main():
     checkOptions( args, options, parser )
     libplot.checkOptions( options, parser )
 
+    refIndir = os.path.join(options.indir, "otherRefs")
+    refExps = getRefStats( refIndir )
+    #DEBUG:
+    #for r in refExps:
+    #    sys.stderr.write("Ref: %s\t" %r)
+    #    for s in refExps[r]:
+    #        sys.stderr.write("%s-%s\t"%(s, refExps[r][s].sample ))
+    #    sys.stderr.write("\n")
+    
     expSets, setnames = getExpSets(options.indir)
     for i, dirs in enumerate(expSets):
         name = setnames[i]
         exps = getStats(options.indir, dirs)
+        #DEBUG:
+        #for s in exps:
+        #    sys.stderr.write("Sample %s\t" %s)
+        #    for exp in exps[s]:
+        #        sys.stderr.write("%s-%d\t" %(exp.ref, exp.weight))
+        #    sys.stderr.write("\n")
         
         outdir = os.path.join( options.outdir, name )
         system("mkdir -p %s" %(outdir))
-        makeLatexTab( os.path.join(outdir, "mappingStats.tex"), exps )
-        drawPlots(options, outdir, exps)
+        for r in refExps:
+            rexps = refExps[r]
+            routdir = os.path.join(outdir, r)
+            system("mkdir -p %s" %(routdir))
+            makeLatexTab( os.path.join(routdir, "mappingStats.tex"), exps, rexps )
+            drawPlots(options, routdir, exps, rexps)
 
 if __name__ == '__main__':
     main()

@@ -113,12 +113,12 @@ def drawData( axes, stats, isAbs, ycutoff ):
             culmulativeList[j] += ydataList[i][j]
         #l = axes.fill_between( x=range(len(ydataList[i])), y1=ydataList[i], y2=[0] * len(ydataList[i]) , facecolor=colors[colorindex], linewidth = 0.0)
     libplot.editSpine( axes )
-    axes.set_title("Coverage") #TO BE NAMED!!!
+    axes.set_title("Sample Coverage") #TO BE NAMED!!!
     pyplot.xlabel("Samples")
     if isAbs:
-        pyplot.ylabel("Number of bases")
+        pyplot.ylabel("Number of positions")
     else:
-        pyplot.ylabel("Proportion of total bases")
+        pyplot.ylabel("Proportion of total positions")
 
     #set ticks:
     samples = []
@@ -166,6 +166,53 @@ def drawCoveragePlot( options, stats, isAbs, ycutoff ):
     lines, linenames = drawData( axes, stats, isAbs, ycutoff )
     libplot.writeImage( fig, pdf, options )
 
+#================= Latex table of mapped bases of each sample onto the reference vs hg19 ===========
+def tabHeader(f, ref1, ref2):
+    f.write("\\begin{table}\n")
+    f.write("\\begin{center}\n")
+    f.write("\\scalebox{1}{%\n")
+    f.write("\\begin{tabular}{c|r|r|r|r}\n")
+    #f.write("\\multicolumn{6}{c}{%s} \\\\\n" %title)
+    #f.write("\\hline\n")
+    f.write("\\hline\n")
+    f.write("Sample & Repeat & %s & %s & Total\\\\\n" %(libplot.properName(ref1), libplot.properName(ref2)))
+    #f.write("Sample & Reads & Total Bases & \\%%Repeats & SNP Rate & Overal Snp Rate\\\\\n")
+    f.write("\\hline\n")
+
+def tab(f, stats, sample2repeat):
+    altColor = 1 
+    for sample in stats:
+        repeat = 'NA'
+        repeatPc = ''
+        if sample.name in sample2repeat:
+            repeat = libplot.prettyInt( sample2repeat[sample.name][1] )
+            repeatPc = "(%.2f \\%%)" %sample2repeat[sample.name][2]
+        otherRef = libplot.prettyInt(sample.otherReferenceBasesMapped)
+        otherRefPc = "%.2f" % (100.0*sample.otherReferenceBasesMapped/sample.totalBases)
+        ref = libplot.prettyInt(sample.referenceBasesMapped)
+        refPc = "%.2f" % (100.0*sample.referenceBasesMapped/sample.totalBases)
+        total = libplot.prettyInt(sample.totalBases)
+        sampleName = libplot.properName(sample.name)
+        if altColor == 1:
+            f.write("%s & %s %s & %s (%s \\%%) & %s (%s \\%%) & %s \\\\\n" %(sampleName, repeat, repeatPc, otherRef, otherRefPc, ref, refPc, total ))
+        else:
+            f.write("\\cellcolor[gray]{0.9} %s & \\cellcolor[gray]{0.9} %s %s & \\cellcolor[gray]{0.9} %s (%s \\%%) & \\cellcolor[gray]{0.9} %s (%s \\%%) & \\cellcolor[gray]{0.9} %s \\\\\n" %(sampleName, repeat, repeatPc, otherRef, otherRefPc, ref, refPc, total ))
+        altColor = 1 - altColor
+    f.write("\\hline\n")
+
+def drawCompareCoverageTab( options, stats, sample2repeat ):
+    prefix = "cmpCoverageTab"
+    outfile = os.path.join( options.outdir, "%s%s_%s.tex" %(prefix, stats[0].referenceName, stats[0].otherReferenceName) )
+    f = open(outfile, 'w')
+    libplot.writeDocumentStart(f)
+    tabHeader(f, stats[0].otherReferenceName, stats[0].referenceName)
+    tab(f, stats, sample2repeat)
+    captionStr = ""
+    label = ""
+    libplot.tableCloser(f, captionStr, label)
+    libplot.writeDocumentEnd(f)
+    f.close()
+
 #================= Mapped bases of each sample onto the reference vs hg19 ===========
 def drawCompareData( axes, options, stats, isAbs ):
     if len(stats) == 0:
@@ -176,30 +223,32 @@ def drawCompareData( axes, options, stats, isAbs ):
 
     barwidth = 0.25
     #X data:
-    x1data = []
+    x3data = []
     #avgIndex = -1
 
     currx = -1
+    #xVer = [] #location (x) of vertical lines to separate between human samples | avr, all | chimp
     for i,s in enumerate( stats ):
         #if s.name == 'average':
         #    avgIndex = i
         if s.name == 'average' or s.name == 'panTro3':
             currx += 1 + 1.5*barwidth
+            #xVer.append( currx - (1.0 + 1.5*barwidth - 3*barwidth)/2.0 )
         else:
             currx += 1
-        x1data.append( currx )
-
+        x3data.append( currx )
+    
     #print x1data
-    x2data = [ x + barwidth for x in x1data ]
-    x3data = [ x + barwidth for x in x2data ]
+    x2data = [ x + barwidth for x in x3data ]
+    x1data = [ x + barwidth for x in x2data ]
 
     if isAbs:
         y1data = [ sample.otherReferenceBasesMapped for sample in stats ]
         y2data = [ sample.referenceBasesMapped for sample in stats ]
         y3data = [ sample.totalBases for sample in stats ]
     else:
-        y1data = [ 100.0*sample.referenceBasesMapped/sample.totalBases for sample in stats ]
-        y2data = [ 100.0*sample.otherReferenceBasesMapped/sample.totalBases for sample in stats ]
+        y1data = [ 100.0*sample.otherReferenceBasesMapped/sample.totalBases for sample in stats ]
+        y2data = [ 100.0*sample.referenceBasesMapped/sample.totalBases for sample in stats ]
         y3data = [ 100.0*sample.totalBases/sample.totalBases for sample in stats ]
     
     #Average aggregate data:
@@ -208,7 +257,8 @@ def drawCompareData( axes, options, stats, isAbs ):
     #    y2data[ avgIndex ] /= float(avgIndex)
     #    y3data[ avgIndex ] /= float(avgIndex)
 
-    colors =["#1B9E77", "#D95F02", "#7570B3"] 
+    colors =["#1F78B4", "#E31A1C", "#4DAF4A"] 
+    #colors =["#1B9E77", "#D95F02", "#7570B3"] 
     #colors =["#EDF8B1", "#7FCDBB", "#2C7FB8"]
     #colors =["#A1DAB4", "#41B6C4", "#225EA8"]
     l1 = axes.bar( x1data, y1data, barwidth, color = colors[0], ec="w" ) 
@@ -219,7 +269,7 @@ def drawCompareData( axes, options, stats, isAbs ):
     lines.append( l3[0] )
 
     libplot.editSpine( axes )
-    #axes.set_title("Coverage across samples") #TO BE NAMED
+    axes.set_title("Sample Coverage") #TO BE NAMED
 
     #set ticks:
     samples = []
@@ -238,26 +288,29 @@ def drawCompareData( axes, options, stats, isAbs ):
     axes.set_yticklabels(yticklabels)
     
     pyplot.xlabel("Samples")
-    pyplot.ylabel("Number of bases (in million)")
+    pyplot.ylabel("Number of positions (in millions)")
     
     axes.xaxis.set_ticks_position( 'bottom' )
     axes.yaxis.set_ticks_position( 'left' )
 
     miny = min( [min(y1data), min(y2data), min(y3data)] )
     miny = miny*0.9
-    axes.set_ylim( miny, max([max(y1data), max(y2data), max(y3data)]) )
-    #axes.set_xlim(-0.5, len(stats) + 0.5 )
-    axes.set_xlim(-0.5, max(x3data) + 0.5 )
+    maxy = max([max(y1data), max(y2data), max(y3data)])
+    
+    #Draw vertical lines:
+    #for x in xVer:
+    #    axes.plot([x, x], [miny, maxy], color="#A8A8A8")
+
+    axes.set_ylim( miny, maxy )
+    axes.set_xlim(-0.5, max(x1data) + 0.5 )
     
     axes.yaxis.grid(b=True, color="#A8A8A8", linestyle='-', linewidth=0.25)
-
+    
     #Legend:
     box = axes.get_position()
     axes.set_position( [box.x0, box.y0, box.width*0.95, box.height*0.9] )
 
-    #legend = axes.legend( lines, linenames, prop=fontP, loc="best", bbox_to_anchor=(0.2,1) )
     legend = axes.legend( lines, [libplot.properName(n) for n in linenames], prop=fontP, loc="best", bbox_to_anchor=(0.2, 1) )
-    #legend = axes.legend( lines, linenames, prop=fontP, loc="upper left", bbox_to_anchor=(1,0.75) )
     legend._drawFrame=False
     
     return 
@@ -275,10 +328,105 @@ def drawCompareCoveragePlot( options, stats, isAbs ):
     drawCompareData( axes, options, stats, isAbs )
     libplot.writeImage( fig, pdf, options )
 
+#================== DRAW ONLY BASES OF EACH SAMPLE THAT MAPPED TO CACTUS REF ==================
+def drawCompareData2( axes, options, stats, isAbs ):
+    if len(stats) == 0:
+        return
+    #if isAbs, draw absolute values. If not, draw proportion (relative values)
+    lines = []
+    linenames = [ stats[0].otherReferenceName, stats[0].referenceName, "total" ]
+
+    #X data:
+    x1data = []
+
+    currx = -1
+    for i,s in enumerate( stats ):
+        if s.name == 'all':
+            continue
+        if s.name == 'average' or s.name == 'panTro3':
+            currx += 1.5
+        else:
+            currx += 1
+        x1data.append( currx )
+
+    y1data = []
+    for sample in stats:
+        if sample.name == 'all':
+            continue
+        if isAbs:
+            y1data.append( sample.referenceBasesMapped )
+        else:
+            y1data.append( 100.0*sample.referenceBasesMapped/sample.totalBases )
+    
+    barwidth = 0.6
+    #barwidth = 0.25
+    l1 = axes.bar( x1data, y1data, barwidth, color = "#E31A1C", ec="w" ) 
+    lines.append( l1[0] )
+
+    libplot.editSpine( axes )
+    axes.set_title("Sample Coverage") #TO BE NAMED
+
+    #set ticks:
+    samples = []
+    for sample in stats:
+        if sample.name == 'all':
+            continue
+        samples.append( libplot.properName(sample.name) )
+    fontP = FontProperties()
+    fontP.set_size('small')
+    pyplot.xticks( [x + barwidth/2.0 for x in x1data], samples, rotation=45, fontproperties=fontP )
+    pyplot.yticks( fontproperties=fontP )
+
+    #HACK:
+    yticks = range(2000000, 6000000, 500000)
+    yticklabels = [ float(y)/1000000 for y in yticks ]
+    axes.set_yticks(yticks)
+    axes.set_yticklabels(yticklabels)
+    
+    pyplot.xlabel("Samples")
+    pyplot.ylabel("Number of positions (in millions)")
+    
+    axes.xaxis.set_ticks_position( 'bottom' )
+    axes.yaxis.set_ticks_position( 'left' )
+
+    miny = min( y1data )
+    miny = miny*0.9
+    axes.set_ylim( miny, max(y1data) )
+    axes.set_xlim(-0.5, max(x1data) + 0.5 )
+    
+    axes.yaxis.grid(b=True, color="#A8A8A8", linestyle='-', linewidth=0.25)
+
+    #Legend:
+    box = axes.get_position()
+    axes.set_position( [box.x0, box.y0, box.width*0.95, box.height*0.9] )
+
+    #legend = axes.legend( lines, [libplot.properName(n) for n in linenames], prop=fontP, loc="best", bbox_to_anchor=(0.2, 1) )
+    #legend._drawFrame=False
+    
+    return 
+
+def drawCompareCoveragePlot2( options, stats, isAbs ):
+    if len(stats) == 0:
+        return
+    prefix = "cmpCoverage2_"
+    if not isAbs:
+        prefix = "cmpRelCoverage2_"
+    options.out = os.path.join( options.outdir, "%s%s_%s" %(prefix, stats[0].referenceName, stats[0].otherReferenceName) )
+    fig, pdf = libplot.initImage( 12.0, 8.0, options )
+    axes = fig.add_axes( [0.09, 0.2, 0.9, 0.6] )
+
+    drawCompareData2( axes, options, stats, isAbs )
+    libplot.writeImage( fig, pdf, options )
+
 #================ display data in scatter plot form, xaxis = number of sample covered, yaxis = number of bases
 def drawScatter( axes, options, stats, type, cumulative ):
     if len(stats) < 4:
         return
+    
+    title = "Distribution of Positions Shared Among Samples"
+    if cumulative:
+        title = "Cumulative Distribution of Positions Shared Among Samples"
+    axes.set_title(title) #TO BE NAMED
     
     #samples = ["panTro3", "minusOtherReference", "average", "reference", "hg19"]
     samples = ["reference", "hg19", "panTro3", "average"]
@@ -303,18 +451,22 @@ def drawScatter( axes, options, stats, type, cumulative ):
                 break
 
     lines = []
-    colors = libplot.getColors0()
+    #colors = libplot.getColors0()
+    colors =["#E31A1C", "#1F78B4", "#3D3D3D", "#4DAF4A"] #ConsensusRef, GRCh37, chimp, average
     c = -1
     offset = 0.12
-    #axes.set_yscale('log')
-    if type == 'noHg19':
-        axes.set_yscale('log')
+    axes.set_yscale('log')
+    #if type == 'noHg19':
+    #    axes.set_yscale('log')
 
     for i in xrange( len(samples) ):
         xdatai = [x + offset*i for x in xdata]
         ydata = ydataList[i]
         c += 1
-        axes.plot(xdatai, ydata, color="#CCCCCC", linestyle='-', linewidth=0.002)
+        if i == 0:
+            axes.plot(xdatai[1:], ydata[1:], color="#CCCCCC", linestyle='-', linewidth=0.002)
+        else:
+            axes.plot(xdatai, ydata, color="#CCCCCC", linestyle='-', linewidth=0.002)
         l = axes.plot(xdatai, ydata, color=colors[c], marker='.', markersize=12.0, linestyle='none')
         lines.append(l)
     
@@ -322,20 +474,11 @@ def drawScatter( axes, options, stats, type, cumulative ):
     fontP.set_size('x-small')
 
     yrange = maxy - miny
-    miny = miny - yrange*0.05
-    maxy = maxy + yrange*0.05
+    miny = miny - 10
+    maxy = maxy + yrange*0.1
     
-    #Draw vertical lines to separate each category:
-    #for i in xrange(1, len(stats) -4):
-    #    d = (1 - offset*len(samples))/2.0
-    #    x = [i -d, i -d]
-    #    y = [ max([0,miny]), maxy ]
-    #    axes.plot(x, y, color="#CCCCCC", linewidth=0.005)
-
     xmin = -0.4
     xmax = len(stats) - 4 -1 + offset*len(samples) + offset
-    axes.set_xlim(xmin, xmax)
-    axes.set_ylim(miny, maxy)
     libplot.editSpine(axes)
     
     axes.set_xticks( [ i + offset*(len(samples)/2.0 ) for i in range(0, len(stats) -4)] )
@@ -344,23 +487,33 @@ def drawScatter( axes, options, stats, type, cumulative ):
     axes.yaxis.set_ticks_position( 'left' )
     
     scale = len(str( int(maxy) )) - 1
-    ylabel = "Number of bases"
+    ylabel = "Number of positions"
     if type == "noHg19": 
         yticks = [ 10**y for y in range(scale + 1) ]
-        axes.set_yticks( yticks )
-        #yticklabels = [ '' for y in range(scale + 1) ]
-        #axes.set_yticklabels( yticklabels )
-        minorLocator = LogLocator( base=10, subs = range(1, 10) )
-        axes.yaxis.set_minor_locator( minorLocator )
     else:
-        yticks = range(0, int(maxy), 10**scale)
-        yticklabels = [ y/(10**scale) for y in yticks ]
-        axes.set_yticks( yticks )
-        axes.set_yticklabels( yticklabels )
-        ylabel += " (x%s)" %( libplot.prettyInt(10**scale) )
+        #yticks = [ 10**y for y in range(scale + 2) ]
+        yticks = []
+        for y in range(scale + 1):
+            for y1 in range(1,10):
+                yticks.append(y1*(10**y))
+    axes.set_yticks( yticks )
+    minorLocator = LogLocator( base=10, subs = range(1, 10) )
+    axes.yaxis.set_minor_locator( minorLocator )
+    #else:
+    #    yticks = range(0, int(maxy), 10**scale)
+    #    yticklabels = [ y/(10**scale) for y in yticks ]
+    #    axes.set_yticks( yticks )
+    #    axes.set_yticklabels( yticklabels )
+    #    ylabel += " (x%s)" %( libplot.prettyInt(10**scale) )
+        #ylabel += " (in millions)"
+    axes.set_xlim(xmin, xmax)
+    if type == "noHg19":
+        axes.set_ylim(miny, maxy)
+    else:
+        axes.set_ylim(10000, 1000000)#HACK
 
     if type != 'noHg19':
-        legend = pyplot.legend( lines, [libplot.properName(s) for s in samples], numpoints=1, loc='best', prop=fontP )
+        legend = pyplot.legend( lines, [libplot.properName(s) for s in samples], numpoints=1, loc='lower right', prop=fontP )
         legend._drawFrame = False
 
     axes.set_xlabel( 'Number of samples' )
@@ -403,11 +556,36 @@ def readfiles( options ):
 
     return statsList
 
+def readRepeatInfo(file):
+    f = open(file, 'r')
+    sample2repeat = {} #key = sample, vals = [totalBases, repetitiveBases, Percentage]
+    f.readline()
+    for line in f.readlines():
+        items = line.strip().split('\t')
+        if len(items) < 4:
+            continue
+        sample2repeat[ items[0] ] = [ int(items[1]), int(items[2]), float(items[3]) ]
+    #Calculate average:
+    avr = [0, 0, 0]
+    numSamples = 0
+    for sample in sample2repeat:
+        if sample == 'panTro3':
+            continue
+        numSamples += 1
+        for i, val in enumerate( sample2repeat[sample] ):
+            avr[i] += val
+    if numSamples > 0:
+        for i in xrange( len(avr) ):
+            avr[i] /= numSamples
+    sample2repeat['average'] = avr
+    return sample2repeat
+
 def initOptions( parser ):
     parser.add_option('--title', dest='title', default='Coverage statistics', help='Based title of the plots, default=%default')
     parser.add_option('--ycutoff', dest='ycutoff', default=0.9, type='float')
     parser.add_option('--outdir', dest='outdir', default='.')
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
+    parser.add_option('--repeatInfo', dest='repeatInfo', default='/hive/users/nknguyen/reconGit/referenceScripts/data/seqRepeatPercentage.txt')
     #parser.add_option('--samplesOrder', dest='samplesOrder', default='', help='Order of the samples to display')
 
 def checkOptions( args, options, parser ):
@@ -437,6 +615,7 @@ def main():
     libplot.checkOptions( options, parser )
 
     statsList = readfiles( options )
+    sample2repeat = readRepeatInfo( options.repeatInfo )
     
     for stats in statsList:
         stats.sort()
@@ -460,14 +639,33 @@ def main():
                 specialcases[ stats[i].name ] = stats[i]
             else:
                 sortedstats.append( stats[i] )
-        sortedstats = sorted( sortedstats, key=lambda s: s.totalBases )
+        sortedstats = sorted( sortedstats, key=lambda s: s.totalBases, reverse=True )
         for k in specialcases:
             s = specialcases[k]
             if s:
                 sortedstats.append( s )
         if len(sortedstats) > 0:
             drawCompareCoveragePlot( options, sortedstats, True )
+            drawCompareCoverageTab( options, sortedstats, sample2repeat )
+
+        #sort by totalBases, but include 'otherReference' sample
+        sortedstats = []
+        for i in xrange( len(stats) ):
+            if stats[i].name in [ stats[i].referenceName, 'minusOtherReference' ]:
+                continue
+            if stats[i].name in specialcases:
+                specialcases[ stats[i].name ] = stats[i]
+            else:
+                sortedstats.append( stats[i] )
+        sortedstats = sorted( sortedstats, key=lambda s: s.totalBases, reverse=True )
+        for k in specialcases:
+            s = specialcases[k]
+            if s:
+                sortedstats.append( s )
+        if len(sortedstats) > 0:
+            drawCompareCoveragePlot2( options, sortedstats, True )
         
+        #scatter plot
         drawScatterPlot( options, stats, 'consensusVShg19', False )
         drawScatterPlot( options, stats, 'consensusVShg19', True )
         drawScatterPlot( options, stats, 'noHg19', False )

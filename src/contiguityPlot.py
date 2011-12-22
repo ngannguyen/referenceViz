@@ -39,6 +39,13 @@ class Sample( list ):
         self.name = name
         self.reference = reference
 
+    def setSummary(self, sample):
+        self.totalSamples = sample.attrib['totalSamples']
+        self.totalCorrect = sample.attrib['totalCorrect']
+        self.totalAligned = sample.attrib['totalAligned']
+        self.correctPerSample = sample.attrib['correctPerSample']
+        self.correctPerAligned = sample.attrib['correctPerAligned']
+
     def setBuckets( self, sampleElement ):
         for bucket in sampleElement.findall( 'bucket' ):
             self.append( Bucket( bucket ) )
@@ -87,6 +94,12 @@ def drawData( axes, stats, options ):
     #styles = { 0:'-', 1:'--' }
 
     colors = libplot.getColors1()
+    if len(stats) < 1:
+        return
+    if stats[0].reference == "reference":
+        colors.pop(0)
+    elif stats[0].reference == 'hg19':
+        colors.pop(1)
 
     #===========
 
@@ -126,7 +139,7 @@ def drawData( axes, stats, options ):
     libplot.editSpine( axes )
     title = options.title
     if ref != '':
-        title += ', %s' % ref
+        title += ', %s' % libplot.properName(ref)
     axes.set_title(title)
     pyplot.xlabel("Distance")
     pyplot.ylabel("Correct proportion")
@@ -199,7 +212,8 @@ def drawCompareData( axesList, xstats, ystats, options ):
     #colors = libplot.getColors2( len(xstats) )
     colors = libplot.getColors1()
     #colorindex = -1
-    colorindex = 0
+    #colorindex = 0
+    colorindex = 1
     lines = []
     sampleNames = []
     p0axes = axesList[0] #plot 0 axes (see def 'setCompareAxes')
@@ -384,15 +398,31 @@ def readfiles( options ):
             name = sample.attrib[ 'sampleName' ]
             if name != '' and name != 'ROOT' and name not in options.filteredSamples:
                 s = Sample( name, sample.attrib[ 'referenceName' ] )
+                s.setSummary(sample)
                 s.setBuckets( sample )
                 stats.append( s )
         if len(stats) > 0:
             stats.setRefName( stats[0].reference )
 
         statsList.append( stats )
-
+    
     return statsList
 
+def getAverage(statsList):
+    sys.stderr.write("Reference\tCorrectPerAligned\tWrongPerAligned\tWrongPerMillion\n")
+    for stats in statsList:
+        numsamples = 0
+        correct = 0
+        for sample in stats:
+            if sample.name == stats.refname or sample.name =='panTro3' or sample.name == stats.name:
+                continue
+            numsamples +=1
+            correct += float(sample.correctPerAligned)
+        correct /= numsamples
+        wrong = 1 - correct
+        wrongPerMil = wrong*1000000
+        sys.stderr.write("%s\t%f\t%f\t%f\n" %(stats.refname, correct, wrong, wrongPerMil))
+    return
 
 def initOptions( parser ):
     parser.add_option('--title', dest='title', default='Contiguity',
@@ -443,6 +473,7 @@ def main():
     libplot.checkOptions( options, parser )
     
     statsList = readfiles( options )
+    getAverage(statsList)
     
     #Sort statsList:
     sortedStatsList = []

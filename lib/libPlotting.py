@@ -129,6 +129,32 @@ def getColors2( num ):
         colors2.append( colors[index] )
     return colors2
 
+#def getColors4():
+#    colors = ["#E41A1C", "#FE8E8F", "#377EB8", "#A6D7FE", "#4DAF4A", "#984EA3", "#FF7F00", "#1B9E77"]
+def getColors6():
+    #colors = ["#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02"]
+    colors = ["#E31A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", "#1B9E77"]
+    return colors
+
+def getColors4():
+    colors = [ "#E31A1C", "#FE8E8F", #red
+               "#1F78B4", "#95D5FE", #blues
+               #"#377EB8", "#A6D7FE", #blues
+               #"#1f77b4", "#aec7e8", # blues 
+               "#DAA520", "#DBDB70", #gold
+               "#9467bd", "#c5b0d5", # lavenders
+               "#2ca02c", "#98df8a", # greens
+               #"#d62728", "#ff9896", # reds
+               "#4A766E", "#48D1CC", #
+               "#ff7f0e", "#ffbb78", # oranges
+               "#302B54", "#5959AB", #purple - blueish
+               "#F6A8B6", "#F6CCDA", #pink
+               "#7B68EE", "#6600FF",
+               "#AA6600", "#B5A642",
+               "#BC8F8F", "#C76114"] 
+
+    return colors
+
 def getColors0():
     colors = [ "#1f77b4", "#aec7e8", # blues 
                "#9467bd", "#c5b0d5", # lavenders
@@ -146,8 +172,10 @@ def getColors0():
     return colors
 
 def getColors1():
-    colors = ["#E41A1C", #ref/hg19
-              "#377EB8", "#000080", "#984EA3", #apd, cox, dbb
+    colors = [#"#E41A1C", #ref/hg19
+              "#E31A1C", "#377EB8", #red, blue (C.ref, hg19)
+              #"#377EB8", "#000080", "#984EA3", #apd, cox, dbb
+              "#33FF33", "#000080", "#984EA3", #apd, cox, dbb
               "#FF7F00", "#FFFF33", "#A65628", #mann, mcf, qbl
               "#F781BF", #ssto
               "#38B0DE",#venter
@@ -195,11 +223,6 @@ def getColors3(): #sequencial
               ]
     return colors
 
-def getColors6():
-    #colors = ["#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02"]
-    colors = ["#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", "#1B9E77"]
-    return colors
-
 def setAxes( fig ):                                                                     
     return fig.add_axes( [0.12, 0.1, 0.83, 0.85] )                                      
                                                                                         
@@ -237,8 +260,8 @@ def bihist( y1, y2, axes, bins, orientation, color=None ):
     return ymin, ymax
 
 def properName(name):
-    d = {'reference': 'consensus ref', \
-         'cactusRef':'consensus ref',\
+    d = {'reference': 'C. Ref.', \
+         'cactusRef':'C. Ref.',\
          'hg19':'GRCh37',\
          'yanhuang':'YH1',\
          'nigerian':'NA18507',\

@@ -75,63 +75,90 @@ def setAxes(fig, range1, range2):
     ax = fig.add_axes( [axleft, axbottom + h2 + margin, axwidth, h1] )
     return ax, ax2
 
-def drawSnpPlot( options, samples1, samples2 ):
-    #Sorted in decreasing order of errorPerSite in samples1
+def drawSnpPlot(options, samples1, samples2):
+    #All the samples sorted indecreasing order of SNP rate, then average, then chimp
     samples1 = sorted( samples1, key=lambda s:s.errPerSite, reverse=True )
     if len( samples1 ) < 1:
         return
     
+    chimpSample = None
+    #remove chimpSample
+    for i, s in enumerate(samples1):
+        if s.name == "panTro3":
+            chimpSample = samples1.pop(i)
+            break
     refname1 = samples1[0].refname
     refname2 = samples2[0].refname
 
     y1data = [ s.errPerSite for s in samples1 ]
+    xticklabels = [s.name for s in samples1]
     
-    xticklabels = [ s.name for s in samples1 ]
+    y1data.append(0) #snps of refname1 w.r.t itself (which is 0)
+    xticklabels.append(refname1)
+
     y2data = []
     for name in xticklabels:
-        for s in samples2:
-            if s.name == name or (name == refname2 and s.name == refname1):
-                y2data.append(s.errPerSite)
+        if name == refname2:
+            y2data.append(0) #snps of refname2 w.r.t itself
+        for s2 in samples2:
+            if s2.name == name:
+                y2data.append(s2.errPerSite)
                 break
-    if len(xticklabels) != len(y2data):
-        sys.stderr.write("Input file 1 and 2 do not have the same set of samples\n")
-        sys.exit( 1 )
 
-    for i in range(len(xticklabels)):
-        if xticklabels[i] == refname2:
-            xticklabels[i] = "ref/hg19"
+    if len(y1data) != len(y2data):
+        sys.stderr.write("Input files have different number of samples: %d, %d\n" %(len(y1data), len(y2data)))
+        sys.exit(1)
     
     #add the average column:
-    num = options.numOutliners
-    if len(y1data) > num:
-        y1avr = sum(y1data[num:])/float(len(y1data) - num)
+    if len(y1data) >= 2:
+        y1avr = sum(y1data)/float(len(y1data) -1)
         y1data.append(y1avr)
-        xticklabels.append('average')
-        y2avr = sum(y2data[num:])/float(len(y2data) - num)
+        y2avr = sum(y2data)/float(len(y2data) -1)
         y2data.append(y2avr)
+        
+        #Print summary stats to stderr:
+        sys.stderr.write("%s\t%f\t%f\t%f\n" %( refname1, sorted(y1data)[1] , max(y1data), y1avr ))
+        sys.stderr.write("%s\t%f\t%f\t%f\n" %( refname2, sorted(y2data)[1] , max(y2data), y2avr ))
+        
 
-    minOutlier = min( [min(y2data[0:num]), min(y1data[0:num])] ) - 0.001 
-    maxOutlier = max( [max(y2data[0:num]), max(y1data[0:num])] ) + 0.001
-    minMajority = min( [min(y2data[num:]), min(y1data[num:])] ) - 0.001
-    maxMajority = max( [max(y2data[num:]), max(y1data[num:])] ) + 0.001
+    xticklabels.append('average')
+    
+    #add chimp:
+    samples1.append(chimpSample)
+    y1data.append( chimpSample.errPerSite )
+    for s in samples2:
+        if s.name == 'panTro3':
+            y2data.append( s.errPerSite )
+    xticklabels.append( 'panTro3' )
 
+    #Min, max values:
+    num = options.numOutliners
+    numcols = len(y1data)
+    
+    minOutlier = min( [ min(y1data[numcols -num:]), min(y2data[numcols - num:]) ] ) - 0.001
+    maxOutlier = max( [ max(y1data[numcols -num:]), max(y2data[numcols - num:]) ] ) + 0.001
+    minMajority = min( [min(y1data[:numcols - num]), min(y2data[: numcols - num])] ) - 0.001
+    maxMajority = max( [max(y1data[:numcols - num]), max(y2data[: numcols - num])] ) + 0.001
+    if minMajority < 0:
+        minMajority = -0.0001
+
+    #Set up
     basename = os.path.basename(options.files[0])
-    #options.out = os.path.join( options.outdir, '%s' %(basename.split('_')[0]) )
-    options.out = os.path.join( options.outdir, '%s' %( basename.lstrip('snpStats').lstrip('_').rstrip('.xml') ) )
-    fig, pdf = libplot.initImage( 8.0, 10.0, options )
+    options.out = os.path.join(options.outdir, '%s' %(basename.lstrip('snpStats').lstrip('_').rstrip('.xml')) )
+    fig, pdf = libplot.initImage( 11.2, 10.0, options )
     ax, ax2 = setAxes(fig, maxOutlier - minOutlier, maxMajority - minMajority)
 
     #Plot the outliers:
-    l2 = ax.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
-    l1 = ax.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    l2 = ax.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )#Red
+    l1 = ax.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )#Blue
 
-    ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
-    ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    ax2.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    ax2.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
   
     #Legend
     fontP = FontProperties()
     fontP.set_size("x-small")
-    legend = ax.legend([l1, l2], [libplot.properName(refname1), libplot.properName(refname2)], 'upper right', numpoints=1, prop=fontP)
+    legend = ax.legend([l1, l2], [libplot.properName(refname1), libplot.properName(refname2)], 'upper left', numpoints=1, prop=fontP)
     legend._drawFrame = False
 
     d = .0001 # how big to make the diagonal lines in axes coordinates
@@ -143,12 +170,9 @@ def drawSnpPlot( options, samples1, samples2 ):
     dummyxticklabels = [ "" for l in xticklabels ]
     ax.set_xticklabels( dummyxticklabels )
     
-    #ytickpositions = ax.yaxis.get_majorticklocs()
-    #ytickpositions = [ ytickpositions[i] for i in range(0,len(ytickpositions),2) ]
     #Make sure the y ticks of the top plot (the outlier plot) is the same with the other plot:
     step = 0.001
     ytickpositions = []
-    #ytickpos = 0.013
     ytickpos = 0
     while ytickpos < maxOutlier:
         if ytickpos >= minOutlier:
@@ -156,9 +180,6 @@ def drawSnpPlot( options, samples1, samples2 ):
         ytickpos += step
     ax.set_yticks( ytickpositions )
         
-    #ax.xaxis.set_major_locator( NullLocator() )
-    #ax.xaxis.set_major_formatter( NullFormatter() )
-    
     ax2.set_ylim( minMajority, maxMajority )
     ax2.set_xlim( -0.5, len(xticklabels) -0.5 )
 
@@ -189,7 +210,7 @@ def drawSnpPlot( options, samples1, samples2 ):
     ax2.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
 
     ax2.set_xlabel( 'Samples' )
-    ax2.set_ylabel( 'Snps per site' )
+    ax2.set_ylabel( 'SNPs per site' )
     title = 'SNPs'
     ax.set_title( title )
     

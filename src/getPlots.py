@@ -111,12 +111,6 @@ class Setup(Target):
                  self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 0, self.indelMaxSize, self.refstart, self.refend, self.filter) )
                  self.addChildTarget( IndelCheck(indir, outdir, pattern, filteredSamples, self.dbindel, self.pgindel, 5, self.indelMaxSize, self.refstart, self.refend, self.filter) )
              
-             #if 'indelcheckplot' in self.analyses:
-             #    self.addChildTarget( IndelCheckPlot(indir, outdir) )
-             
-             #if 'snpcheckplot' in self.analyses:
-             #    self.addChildTarget( SnpCheckPlot(indir, outdir) )
-
              if 'indeldist' in self.analyses:
                  self.addChildTarget( IndelDist(indir, outdir, filteredSamples) )
 
@@ -170,11 +164,12 @@ class Contiguity(Target):
         filesStr = " ".join(files)
        
         if len(files) >= 1:
+            cmd = "contiguityPlot.py %s --outdir %s " %(filesStr, self.outdir) 
             if self.includeCoverage:
-                system("contiguityPlot.py %s --outdir %s --includeCoverage --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples) )
-            else:
-                system("contiguityPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples) )
-
+                cmd += " --includeCoverage "
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 class Coverage(Target):
     """
@@ -188,7 +183,10 @@ class Coverage(Target):
     def run(self):
         infile = os.path.join(self.indir, "coverageStats.xml")
         if os.path.exists( infile ):
-            system("coveragePlot.py %s --outdir %s --filteredSamples %s" %(infile, self.outdir, self.filteredSamples))
+            cmd = "coveragePlot.py %s --outdir %s " %(infile, self.outdir)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 class N50(Target):
     def __init__(self, indir, outdir, filteredSamples, pattern):
@@ -210,7 +208,10 @@ class N50(Target):
         keys = "sequenceN50,blockN50,contigPathN50,scaffoldPathN50"
         #keys = "blockN50,contigPathN50,scaffoldPathN50"
         if len(files) >=1:
-            system("n50Plot.py %s --sortkey %s --keys %s --outdir %s --filteredSamples %s -p %s" %(filesStr, sortkey, keys, self.outdir, self.filteredSamples, prefix))
+            cmd = "n50Plot.py %s --sortkey %s --keys %s --outdir %s -p %s" %(filesStr, sortkey, keys, self.outdir, prefix)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 class Snp(Target):
     def __init__(self, indir, outdir, pattern, filteredSamples):
@@ -226,7 +227,10 @@ class Snp(Target):
         files = getfiles(self.pattern, self.indir)
         filesStr = " ".join(files)
         if len(files) >=1:
-            system("snpPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
+            cmd = "snpPlot.py %s --outdir %s" %(filesStr, self.outdir)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 class SnpCheckPlot(Target):
     def __init__(self, indir, outdir):
@@ -292,7 +296,7 @@ class SnpCheck(Target):
                             system("snpStats.py --pileupSnp %s --pgSnp %s %s %s > %s" %(self.pileupSnp, self.pgsnp, file, self.dbsnp, outfile))
                         else:
                             system("snpStats.py --pileupSnp %s -f %s --pgSnp %s %s %s > %s" %(self.pileupSnp, self.filter, self.pgsnp, file, self.dbsnp, outfile))
-
+                
 class IndelCheck(Target):
     def __init__(self, indir, outdir, pattern, filteredSamples, dbsnp, pgsnp, wobble, cutoff, refstart, refend, filter):
         Target.__init__(self, time=0.25)
@@ -354,7 +358,10 @@ class Indel(Target):
         filesStr = " ".join(files)
 
         if len(files) >=1:
-            system("indelPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
+            cmd = "indelPlot.py %s --outdir %s " %(filesStr, self.outdir)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 class IndelDist(Target):
     def __init__(self, indir, outdir, filteredSamples):
@@ -369,7 +376,10 @@ class IndelDist(Target):
         filesStr = " ".join(files)
 
         if len(files) >=1:
-            system("indelDistPlot.py %s --outdir %s --filteredSamples %s" %(filesStr, self.outdir, self.filteredSamples))
+            cmd = "indelDistPlot.py %s --outdir %s " %(filesStr, self.outdir)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 class IndelTab(Target):
     def __init__(self, indir, outdir, pdflatex, filteredSamples, pathstatsPattern, snpstatsPattern):
@@ -396,7 +406,10 @@ class IndelTab(Target):
             outPrefix = "indelStats_%s_%s" %( basename1, basename2 )
 
         if len(files1) >=1 and len(files2) >=1:
-            system("indelTable.py %s --outPrefix %s --outdir %s --filteredSamples %s" %(filesStr, outPrefix, self.outdir, self.filteredSamples))
+            cmd = "indelTable.py %s --outPrefix %s --outdir %s " %(filesStr, outPrefix, self.outdir)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
             #Get make pdf for tex files:
             #if self.pdflatex:
             #    prefix = "indelStats_"
@@ -418,7 +431,10 @@ class Cnv(Target):
     def run(self):
         infile = os.path.join(self.indir, "copyNumberStats.xml")
         if os.path.exists( infile ):
-            system("cnvPlot.py %s --outdir %s --filteredSamples %s" %(infile, self.outdir, self.filteredSamples))
+            cmd = "cnvPlot.py %s --outdir %s " %(infile, self.outdir)
+            if self.filteredSamples != "":
+                cmd += " --filteredSamples %s" %(self.filteredSamples)
+            system(cmd)
 
 def getfiles(pattern, indir):
     files = []
@@ -465,11 +481,11 @@ def checkOptions( args, options, parser ):
         parser.error('Output direcotry is required but not given.\n')
     if not options.dbsnp or not os.path.exists(options.dbsnp):
         parser.error('Dbsnp file does not exist or was not provided\n')
-    if not os.path.exists(options.pgsnp):
+    if options.pgsnp and not os.path.exists(options.pgsnp):
         parser.error('pgsnp file does not exist\n')
     if not options.dbindel or not os.path.exists(options.dbindel):
         parser.error('Dbindel file does not exist or was not provided\n')
-    if not os.path.exists(options.pgindel):
+    if options.pgindel and not os.path.exists(options.pgindel):
         parser.error('pgsnp indel file does not exist\n')
     if re.search('all', options.analyses):
         options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,indelcheckplot,snpcheckplot,indel'

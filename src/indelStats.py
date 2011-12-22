@@ -70,6 +70,7 @@ class SnpSite():
         if len(items) < 16:
             sys.stderr.write('cactus indel record does not have enough fields\n')
             sys.exit(1)
+        self.desc = line
         self.name = items[1]
         self.start = int( items[3] )
         self.length = int(items[5])
@@ -139,6 +140,7 @@ class Snp():
         self.refNCBI = items[6].lower()
         self.refUCSC = items[7].lower()
         self.observed = items[8].lower().split('/')
+        self.observed.sort()
         if self.strand == '-':
         #    self.refNCBI = reverse(self.refNCBI)
         #    self.refUCSC = reverse(self.refUCSC)
@@ -248,6 +250,14 @@ def readFilter(file):
     f.close()
     return regions
 
+def sameSnp(snp, other):
+    if snp.chrom == other.chrom and snp.chromStart == other.chromStart and snp.chromEnd == other.chromEnd:
+        for a1 in snp.observed:
+            for a2 in other.observed:
+                if a1 != '-' and a2 != '-' and (len(a1) == len(a2)):
+                    return True
+    return False
+
 def readDbSnps(file, cutoff, start, end, filter):
     f = open(file, 'r')
     #indels = []
@@ -283,18 +293,21 @@ def readDbSnps(file, cutoff, start, end, filter):
         if not inrange or infilter:
             continue
         if snp.type == 'in-del':
-            #indels.append(snp)
             numindels +=1
-            insertions.append(snp)
-            deletions.append(snp)
+            if len(insertions) == 0 or not sameSnp(snp, insertions[ len(insertions) -1 ]):
+                insertions.append(snp)
+            if len(deletions) == 0 or not sameSnp(snp, deletions[ len(deletions) -1 ]):
+                deletions.append(snp)
         elif snp.type == 'insertion' and checkSizeCutoff(snp, cutoff):
             numins +=1
-            insertions.append(snp)
+            if len(insertions) == 0 or not sameSnp(snp, insertions[ len(insertions) -1 ]):
+                insertions.append(snp)
         elif snp.type == 'deletion' and checkSizeCutoff(snp, cutoff):
             numdels += 1
-            deletions.append(snp)
+            if len(deletions) == 0 or not sameSnp(snp, deletions[ len(deletions) -1 ]):
+                deletions.append(snp)
     
-    sys.stdout.write("Insertions\t%d\tDeletions\t%d\tIn-dels\t%d\n" %(numins, numdels, numindels))
+    sys.stdout.write("Insertions\t%d\tDeletions\t%d\tIn-dels\t%d. Non-redundant insertions: %d, deletions: %d\n" %(numins, numdels, numindels, len(insertions), len(deletions) ))
 
     #return indels, insertions, deletions
     return insertions, deletions
@@ -357,6 +370,7 @@ def readRefSnps(file, filteredSamples, cutoff, start, end, filter):
         ref = sample.attrib['referenceName']
         #totalSnps = int( sample.attrib['totalErrors'] )
         sites = sample.text.strip().split('\n')
+        sys.stderr.write("%s\t%d\n" %(name, len(sites)))
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
                 snp = SnpSite(site, name, ref)
@@ -365,10 +379,12 @@ def readRefSnps(file, filteredSamples, cutoff, start, end, filter):
                         dels[name].append(snp)
                     elif snp.reflength == 0 and snp.length > 0:
                         ins[name].append(snp)
-                    else:
+                    elif snp.reflength > 0 and snp.length > 0:
                         ins[name].append(snp)
                         dels[name].append(snp)
-
+                    else:
+                        sys.stderr.write("Weird indel: %s\n" %snp.desc)
+    sys.stderr.write("Ins: %d; dels: %d\n" %(len(ins['aggregate']), len(dels['aggregate'])))
     return ins, dels, samples
 
 def checkAlleles(refsnp, dbsnp, type):

@@ -26,7 +26,7 @@ from matplotlib.font_manager import FontProperties
 def drawN50data( axes, samples, options ):
     #key can be 'blockN50', 'sequenceN50', 'contigPathN50', or 'scaffolfPathN50'
     keys = options.keys
-    colors = libplot.getColors0()
+    colors = libplot.getColors6()
     #markers = [".", "s", "^", "--"]
 
     c = -1
@@ -61,7 +61,7 @@ def getSample(samples, name):
 def drawCompareN50data( axes, xsamples, ysamples, options ):
     keys = options.keys
     lineNames = []
-    colors = libplot.getColors0()
+    colors = libplot.getColors6()
     c = -1
     lines = []
     xrefname = xsamples[0].attrib[ 'referenceName' ]

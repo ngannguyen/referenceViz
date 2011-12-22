@@ -1,7 +1,7 @@
 binPath = ../bin
 libPath = ../lib
 
-progs = $(notdir $(wildcard indelCheckPlot.py snpCheckPlot.py indelPlot.py overlapSnps.py mergeDbsnpsAnd1ksnps.py mappingPlot.py bamGetPairs.py indelStats.py snpStats.py parseBam.py getReads.py mapReadsToRef.py cnvPlot.py summaryStats.py indelTable.py indelDistPlot.py getPlots.py contiguityPlot.py coveragePlot.py n50Plot.py snpPlot.py))
+progs = $(notdir $(wildcard mapLargeIndelsStats.py falsePosSNPsTable.py largeIndelTab.py getSeqRepeatFraction.py uniqMapTab.py bam_convertCoor.py uniqMapStats.py mapLargeIndels.py nonLinearBp.py bam_cmpMapping.py getBamUniqMappedReads.py indelCheckPlot.py snpCheckPlot.py indelPlot.py overlapSnps.py mergeDbsnpsAnd1ksnps.py mappingPlot.py bamGetPairs.py indelStats.py snpStats.py parseBam.py getReads.py mapReadsToRef.py cnvPlot.py summaryStats.py indelTable.py indelDistPlot.py getPlots.py contiguityPlot.py coveragePlot.py n50Plot.py snpPlot.py))
 
 .PHONY: %.all
 

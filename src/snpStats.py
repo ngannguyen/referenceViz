@@ -112,6 +112,7 @@ class Snp():
         self.refNCBI = items[6].lower()
         self.refUCSC = items[7].lower()
         self.observed = items[8].lower().split('/')
+        self.observed.sort()
         if self.strand == '-':
         #    self.refNCBI = reverse(self.refNCBI)
         #    self.refUCSC = reverse(self.refUCSC)
@@ -129,10 +130,15 @@ class Snp():
         self.func = items[14]
         self.locType = items[15]
         self.exceptions = items[17]
+        self.alleles = items[21].lower().rstrip(',').split(',')
+        self.alleleFreqs = {}
+        if items[23] != "":
+            alleleFreqs = [ float(freq) for freq in items[23].rstrip(',').split(',') ]
+            for i, allele in enumerate(self.alleles):
+                self.alleleFreqs[ allele ] = alleleFreqs[i]
         #self.alleleFreqCount = int(items[20])
         #self.alleles = items[21].rstrip(',')
         #self.alleleFreqs = items[23].rstrip(',')
-        self.alleles = items[21].lower().rstrip(',').split(',')
         #for allele in self.alleles:
         #    if len(allele) < self.chromEnd - self.chromStart:
         #        sys.stderr.write("dbsnp line '%s', allele length is different from chromEnd - chromStart\n" %(line))
@@ -283,9 +289,21 @@ def readDbSnps(file, start, end, filter):
             nummnp += len(subsnps)
             for s in subsnps:
                 if isInRange(s.chromStart, start, end):
-                    snps.append( s )
+                    if len(snps) == 0:
+                        snps.append( s )
+                    else:
+                        prevsnp = snps[ len(snps) - 1 ]
+                        if prevsnp.chromStart == s.chromStart and prevsnp.chromEnd == s.chromEnd and prevsnp.chrom == s.chrom and prevsnp.observed == s.observed:
+                            continue
+                        snps.append(s)
         elif snp.isSnp and inrange and not infilter:
-            snps.append( snp )
+            if len(snps) == 0:
+                snps.append( snp )
+            else:
+                prevsnp = snps[ len(snps) - 1 ]
+                if prevsnp.chromStart == snp.chromStart and prevsnp.chromEnd == snp.chromEnd and prevsnp.chrom == snp.chrom and prevsnp.observed == snp.observed:
+                    continue
+                snps.append(snp)
     sys.stdout.write("TotalSnps\t%d\n" % (len(snps)))
     sys.stderr.write("numMNP: %d\n" %(nummnp))
 
@@ -399,7 +417,8 @@ def calcOverlapSnps(snps, reportedSnps, isPgSnp, fpFh):#reportedSnps can be dbSn
         if flag == True: #pass position check
             tpPos += 1
         if not flagTp and fpFh != None:
-            fpFh.write("%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\n" %(s.sampleName, s.refchrom, s.refstart, s.refstart+1, s.allele, 1, 0, 0))
+            #fpFh.write("%s\t%s\t%d\t%d\t%s\t%d\t%d\t%d\n" %(s.sampleName, s.refchrom, s.refstart, s.refstart+1, s.allele, 1, 0, 0))
+            fpFh.write("%s\t%s\t%d\t%d\t%s\t%s\t\t%s\t%d\n" %(s.sampleName, s.refchrom, s.refstart, s.refstart+1, s.allele.upper(), s.refallele.upper(), s.name, s.start))
 
     return tp, tpPos
 

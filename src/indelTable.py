@@ -59,9 +59,21 @@ def prettyFloat( num ):
     else:
         return "%.2e" %num
 
+def getNonLinearOps(samplesList):
+    totalNLops = 0
+    refname = samplesList[0].attrib['referenceName']
+    for sample in samplesList:
+        if sample.attrib['sampleName'] == sample.attrib['referenceName']:
+            continue
+        totalNLops += int(sample.attrib['totalIntraJoin'])
+    sys.stderr.write("%s\tTotalNonLinearBPs\t%d\n" %(refname, totalNLops))
+
 def tab( f, samplesList, sampleNames ):
     refname1 = samplesList[0][0].attrib['referenceName']
     refname2 = samplesList[1][0].attrib['referenceName']
+    getNonLinearOps(samplesList[0])
+    getNonLinearOps(samplesList[1])
+
     for s in sampleNames:
         #altColor = 1
         for altColor in [1,0]:
