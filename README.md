@@ -35,8 +35,9 @@ This is a set of scripts developed by [Ngan Nguyen ](https://github.com/ngannguy
 
 3. <code>mapLargeIndels.py</code>: script to extract the large-indel sequences and map them to the reference.
 
-   <code>largeIndelTab.py</code>: generates the summary table of the large indel mapping.
+    <code>largeIndelTab.py</code>: generates the summary table of the large indel mapping.
 
 4. <code>uniqMapStats.py</code>: script to compare reads that map uniquely to one reference but not uniquely to the other.
-   <code>uniqMapTab.py</code>: generates the summary table for uniquely-mapping comparisons.
+   
+    <code>uniqMapTab.py</code>: generates the summary table for uniquely-mapping comparisons.
 
