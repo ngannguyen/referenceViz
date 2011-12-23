@@ -3,8 +3,10 @@
 """
 nknguyen at soe dot ucsc dot edu
 May 31 2011
-Script to generate different analysis plots for different experiments (different cactus parameters) 
+Script to generate different analyses plots for different experiments (different cactus parameters) 
 of the reference project.
+Analyses included are: contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,snpcheckplot,indelcheckplot,indel,
+all
 """
 
 import os, sys, re, time
@@ -460,17 +462,25 @@ def getFilteredSamples(exp):
 def initOptions( parser ):
     parser.add_option('-i', '--indir', dest='indir', help='Required. Location of all the experiments') 
     parser.add_option('-o', '--outdir', dest='outdir', help='Required. Output directory')
-    parser.add_option('-l', '--pdflatex', dest='pdflatex', action="store_true", default=False, help='If specified, convert tex files to pdf using "pdflatex" (This must be installed)')
+    parser.add_option('-l', '--pdflatex', dest='pdflatex', action="store_true", default=False, help='If specified, convert tex files to pdf using "pdflatex" ("pdflatex" must be installed)')
     parser.add_option('--dbsnp', dest='dbsnp', help='dbSnps file') 
     parser.add_option('--pgsnp', dest='pgsnp', help='pgSnps file') 
     parser.add_option('--dbindel', dest='dbindel', help='dbSnps indels file') 
     parser.add_option('--pgindel', dest='pgindel', help='pgSnps indels file') 
-    parser.add_option('-a', '--analyses', dest='analyses', default='all', \
-                      help='Comma separated string of different analyses to perform.\n\
-                      Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,snpcheckplot,indelcheckplot,indel,all].\n\
-                      The default string is "all", which means all the analyses included.')
+    parser.add_option('-a', '--analyses', dest='analyses', default='all', 
+                      help='Comma separated string of different analyses to perform.'
+                      'Analyses are within the list:[contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,snpcheckplot,indelcheckplot,indel,all].'
+                      'The default string is "all", which means all the analyses included.'
+                      'contiguity = Contiguity; '
+                      'coverage: Coverage; '
+                      'n50: N50; '
+                      'snp: SNP rate; '
+                      'indel, indeltab: Indel rate; '
+                      'indeldist: Indel length distribution; '
+                      'snpcheck, snpcheckplot, indelcheck, indelcheckplot: dbSNP and 1000 Genomes project SNPs and short indels (<= 10bp) validation; '
+                      'cnv: copy number variation')
     parser.add_option('--indelMaxSize', dest='indelMaxSize', type='int', default=10, help="Only indels with size <= than this cutoff are included in the comparisons with dbSnps indels. Default = 10")
-    parser.add_option('-r', '--ref', dest='ref', help='hg19 sequence')
+    parser.add_option('-r', '--ref', dest='ref', help='current reference (GRCh37/hg19) sequence')
     parser.add_option('-f', '--filter', dest='filter', help='File contain regions to ignore in the stats (format:chr\\tchromStart\\tchromEnd). Will ignore all snps lie within this region. Default=no filtering')
     parser.add_option('--pileupSnp', dest='pileupSnp')
 
@@ -514,8 +524,9 @@ def checkOptions( args, options, parser ):
 
 
 def main():
-    usage = ( 'usage: %prog [options]'
-              '%prog is a pipeline to generate various analysis plots for different (inputed) experiments') 
+    usage = ( 'usage: %prog [options]\n'
+              '%prog is a pipeline to generate various analyses plots for different experiments.\n'
+              'Analyses included are: contiguity, coverage, n50, SNPs, indels, indel distribution, cnv, dbSNP validation (SNP and short indels)') 
 
     parser = OptionParser( usage = usage )
     Stack.addJobTreeOptions(parser)
@@ -531,6 +542,5 @@ def main():
 
 if __name__ == "__main__":
     from referenceViz.src.getPlots import *
-    #_test()
     main()
 
