@@ -18,14 +18,15 @@ class Ref():
         self.longname = line
         if len(items) == 6:
             self.name = '.'.join(items[0:2])
-            if not isinstance(items[2], int) or not isinstance(items[3], int) or not isinstance(items[4], int):
-                raise ValueError("Wrong reference header format. Should be: spc.chr.chrlen.start.fraglen.strand, where chrlen, start and fraglen are intergers. Got: %s\n" %line)
             self.chrlen = int(items[2])
             self.start = int(items[3])
             self.fraglen = int(items[4])
+
+            if not isinstance(self.chrlen, int) or not isinstance(self.start, int) or not isinstance(self.fraglen, int):
+                raise ValueError("Wrong reference header format. Should be: spc.chr.chrlen.start.fraglen.strand, where chrlen, start and fraglen are intergers. Got: %s\n" %line)
             self.strand = items[5]
             if self.strand != '1':
-                raise ValueError("Positive strand is required. Sorry.\n")
+                raise ValueError("Got sequence header of negative strand: %s. Positive strand is required. Sorry.\n" %line)
         else:
             self.name = line
             self.chrlen = -1
@@ -41,15 +42,14 @@ class Cigar():
             raise ValueError("Wrong Cigar format. At least 12 fields are expected. Only saw %d. Line: %s\n" %(len(items), line) )
         #query
         self.qname = items[1]
-        if not isinstance(items[2], int) or not isinstance(items[3], int):
-            raise ValueError("Wrong Cigar format. Required start and end (field 3 and 4) to be integer. Got: %s, %s\n" %(items[2], items[3]))
         self.qstart = int(items[2])
         self.qend = int(items[3])
         self.qstrand = items[4]
+
+        if not isinstance(self.qstart, int) or not isinstance(self.qend, int):
+            raise ValueError("Wrong Cigar format. Required start and end (field 3 and 4) to be integer. Got: %s, %s\n" %(items[2], items[3]))
         #target
         self.tname = items[5]
-        if not isinstance(items[2], int) or not isinstance(items[3], int):
-            raise ValueError("Wrong Cigar format. Required start and end (field 7 and 8) to be integer. Got: %s, %s\n" %(items[2], items[3]))
         self.tstart = int(items[6])
         self.tend = int(items[7])
         self.tstrand = items[8]
@@ -80,6 +80,12 @@ def convertRef(name, start, end, refs):
     if ref.chrlen > 0:#If the desired ref is only a subsequence of the original ref, convert the coordinate so that it is relative to this ref
         newstart -= ref.start
         newend -= ref.start
+
+    if newstart < 0 or newend < 0:
+        raise ValueError("Negative coordinates: old ref: %s, old start: %d, old end: %d; newref: %s, new start: %d, new end: %d\n" %(name, start, end, newname, newstart, newend))
+    elif abs(newend - newstart) > ref.fraglen:
+        raise ValueError("Out of range: old ref: %s, old start: %d, old end: %d; newref: %s, new start: %d, new end: %d\n" %(name, start, end, newname, newstart, newend))
+    
     return newname, newstart, newend
 
 def convertCigars(cigars, refs, outfile):
