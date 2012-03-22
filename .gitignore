@@ -1,3 +1,6 @@
 bin/*
 *.o
 *.pyc
+data
+src/oldfiles
+src/*tex

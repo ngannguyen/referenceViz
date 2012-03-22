@@ -169,6 +169,11 @@ class RunExp(Target):
         system("cp %s %s" %(orefLendist, orefOutdir))
         system("cp %s %s" %(orefRepeat, orefOutdir))
 
+        #======== Test with dbSNP ==========
+        dbsnps = readDbSNPs(self.options.dbsnp, self.options.startCoord, self.options.endCoord) 
+        dbsnpFile = getDbSnpStats(dbsnps, orefSites, self.options.startCoord, self.options.endCoord, orefLocalDir)
+        system("cp %s %s" %(dbsnpFile, orefOutdir))
+
         #self.addChildTarget( UniqHighCov(cactusRef, cactusRefDir, os.path.join(self.outdir, 'cref'), crefCovCutoff) )
         #self.addChildTarget( UniqHighCov(otherRef, otherRefDir, os.path.join(self.outdir, self.ref), orefCovCutoff) )
         
@@ -411,11 +416,180 @@ def getExps(indir):
                     exps[exp].append(sample)
     return exps
 
+#==================== dbSNP ===============================
+class Snp():
+    def __init__(self, line):
+        items = line.split('\t')
+        if len(items) < 25:
+            sys.stderr.write("Each snp record must have at least 25 fields\n")
+            sys.stderr.write("%s\n" %line)
+        self.chrom = items[0]
+        self.chromStart = int(items[1])
+        self.chromEnd = int(items[2])
+        self.name = items[3]
+        self.score = int(items[4])
+        self.strand = items[5]
+        self.refNCBI = items[6].lower()
+        self.refUCSC = items[7].lower()
+        self.observed = items[8].lower().split('/')
+        self.observed.sort()
+        if self.strand == '-':
+            self.observed = [ reverse(a) for a in self.observed] 
+        #Check if indel is snp:
+        self.isSnp = False
+        for o in self.observed:
+            if len(o) == self.chromEnd - self.chromStart and o!= '-' and o != self.refUCSC:
+                self.isSnp = True
+                break
+        
+        self.molType = items[9]
+        self.type = items[10]
+        self.func = items[14]
+        self.locType = items[15]
+        self.exceptions = items[17]
+        self.alleles = items[21].lower().rstrip(',').split(',')
+        self.alleleFreqs = {}
+        if items[23] != "":
+            alleleFreqs = [ float(freq) for freq in items[23].rstrip(',').split(',') ]
+            for i, allele in enumerate(self.alleles):
+                self.alleleFreqs[ allele ] = alleleFreqs[i]
+        if self.strand == '-':
+            d = {'a':'t', 't':'a', 'c':'g', 'g':'c'}
+            newalleles = []
+            for a in self.alleles:
+                if a in d:
+                    newalleles.append( d[a] )
+                else:
+                    newalleles.append( a )
+            self.alleles = newalleles
+
+    def __cmp__(self, other):
+        chr = int( self.chrom.lstrip('chr') )
+        otherchr = int( other.chrom.lstrip('chr') )
+
+        if chr < otherchr:
+            return -1
+        elif chr > otherchr:
+            return 1
+        else:
+            if self.chromStart < other.chromStart:
+                return -1
+            elif self.chromStart == other.chromStart:
+                return 0
+            else:
+                return 1
+
+def splitDbsnp(snp):
+    snps = []
+    if len(snp.observed) == 0:
+        return snps
+    snpLen = len(snp.observed[0])
+    for allele in snp.observed:
+        if len(allele) != snpLen:
+            return snps
+    for i in xrange(snpLen):
+        s = copy.copy( snp )
+        if len(snp.refNCBI) > i:
+            s.refNCBI = snp.refNCBI[i]
+        else:
+            s.refNCBI = ''
+        if len(snp.refUCSC) > i:
+            s.refUCSC = snp.refUCSC[i]
+        else:
+            s.refUCSC = ''
+        s.chromStart = snp.chromStart + i
+        s.observed = [ a[i] for a in snp.observed ]
+        s.isSnp = True
+        s.type = 'single'
+        snps.append(s)
+    return snps
+
+def reverse(s):
+    d = {'a':'t', 't':'a', 'c':'g', 'g':'c'}
+    if s in d:
+        return d[s]
+    else:
+        return s
+
+def isInRange(coord, start, end):
+    if start != None and coord < start:
+        return False
+    if end != None and coord > end:
+        return False
+    return True
+
+def readDbSNPs(file, start, end):
+    f = open(file, 'r')
+    snps = []
+
+    for line in f:
+        if re.search('chromStart', line):
+            continue
+        snp = Snp(line)
+        inrange = isInRange(snp.chromStart, start, end)
+        if inrange and snp.type == 'mnp':
+            subsnps = splitDbsnp(snp)
+            for s in subsnps:
+                if len(snps) == 0:
+                    snps.append(s)
+                else:
+                    prevsnp = snps[ len(snps) - 1 ]
+                    #if prevsnp.chromStart == s.chromStart and prevsnp.chromEnd == s.chromEnd and prevsnp.chrom == s.chrom and prevsnp.observed == s.observed:
+                    if prevsnp.chromStart == s.chromStart and prevsnp.chromEnd == s.chromEnd and prevsnp.chrom == s.chrom:
+                        continue
+                    snps.append(s)
+        elif inrange and snp.isSnp:
+            if len(snps) == 0:
+                snps.append(snp)
+            else:
+                prevsnp = snps[ len(snps) - 1 ]
+                if prevsnp.chromStart == snp.chromStart and prevsnp.chromEnd == snp.chromEnd and prevsnp.chrom == snp.chrom:
+                    continue
+                snps.append(snp)
+
+    return snps
+
+def getDbSnpStats(dbsnps, sites, start, end, outdir):
+    totalbases = end - start
+    totalSnps = len(dbsnps)
+    if totalbases <=0 :
+        exit(1)
+    overallrate = float(totalSnps)/totalbases
+    #uniquely mapped regions:
+    uniqbases = len(sites)
+    i = 0
+    uniqsnps = 0
+    for snp in dbsnps:
+        while i < len(sites) and sites[i].pos + start <= snp.chromStart:
+            if sites[i].pos + start == snp.chromStart:
+                uniqsnps += 1
+                break
+            i += 1
+    uniqrate = float(uniqsnps)/uniqbases
+    ratio = 0.0
+    if overallrate > 0:
+        ratio = uniqrate/overallrate
+    
+    #Print to output file
+    outfile = os.path.join(outdir, 'uniqMap-dbsnp.txt')
+    f = open(outfile, 'w')
+    f.write("Category\tTotalbases\tTotalSNPs\tRate\n")
+    f.write("Overall\t%d\t%d\t%f\n" %(totalbases, totalSnps, overallrate))
+    f.write("UniquelyMapped\t%d\t%d\t%f\n" %(uniqbases, uniqsnps, uniqrate))
+    f.write("Ratio\t%f\n" %(ratio))
+
+    return outfile
+
+#=================== END dbSNP ============================
+
 def initOptions( parser ):
     parser.add_option('-i', '--indir', dest='indir', help='Input directory. Required argument.')
     parser.add_option('-o', '--outdir', dest='outdir', help='Output directory. Default = ./uniqMapping')
     parser.add_option('-c', '--covCutoff', dest='covCutoff', type='int', default = 0.9, help='Coverage cutoff. Default = 0.9' )
-    #parser.add_option('-r', '--refs', dest='refs', help='Comma separated list of refs', default='hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter')
+    parser.add_option('-d', '--dbSNP', dest='dbsnp', help='dbSNPfile', default='/hive/users/nknguyen/reconGit/referenceScripts/data/snp134.txt')
+    parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', default=28477754, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
+    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', default=33448354, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
+ 
     #parser.add_option()
 
 def checkOptions( args, options, parser ):

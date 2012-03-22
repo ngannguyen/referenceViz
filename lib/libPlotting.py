@@ -31,6 +31,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 ##############################
+import matplotlib
+#matplotlib.use('Agg')
 from numpy import *
 from matplotlib.ticker import LogLocator
 
