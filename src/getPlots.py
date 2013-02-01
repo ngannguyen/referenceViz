@@ -489,19 +489,26 @@ def checkOptions( args, options, parser ):
         parser.error('Location of input experiments is required and not given.\n')
     if not options.outdir:
         parser.error('Output direcotry is required but not given.\n')
-    if not options.dbsnp or not os.path.exists(options.dbsnp):
-        parser.error('Dbsnp file does not exist or was not provided\n')
-    if options.pgsnp and not os.path.exists(options.pgsnp):
-        parser.error('pgsnp file does not exist\n')
-    if not options.dbindel or not os.path.exists(options.dbindel):
-        parser.error('Dbindel file does not exist or was not provided\n')
-    if options.pgindel and not os.path.exists(options.pgindel):
-        parser.error('pgsnp indel file does not exist\n')
+    
     if re.search('all', options.analyses):
         options.analyses = 'contiguity,coverage,n50,snp,indeldist,indeltab,cnv,snpcheck,indelcheck,indelcheckplot,snpcheckplot,indel'
     options.analyses = (options.analyses).split(',')
     alist = ['contiguity', 'coverage', 'n50', 'snp', 'indeldist', 'indeltab', 'cnv', 'snpcheck', 'indelcheck', 'indelcheckplot', 'snpcheckplot', 'indel']
+    for a in options.analyses:
+        if a not in alist:
+            parser.error('Analysis %s is unknown\n' % a)
     
+    if 'snpcheck' in options.analyses and (not options.dbsnp or not os.path.exists(options.dbsnp)):
+        parser.error('Dbsnp file does not exist or was not provided\n')
+    
+    if options.pgsnp and not os.path.exists(options.pgsnp):
+        parser.error('pgsnp file does not exist\n')
+    
+    if 'indelcheck' in options.analyses and (not options.dbindel or not os.path.exists(options.dbindel)):
+        parser.error('Dbindel file does not exist or was not provided\n')
+    if options.pgindel and not os.path.exists(options.pgindel):
+        parser.error('pgsnp indel file does not exist\n')
+
     options.refstart = None
     options.refend = None
     if options.ref != None:
@@ -518,10 +525,6 @@ def checkOptions( args, options, parser ):
                         options.refend = e
         f.close()
     
-    for a in options.analyses:
-        if a not in alist:
-            parser.error('Analysis %s is unknown\n' % a)
-
 
 def main():
     usage = ( 'usage: %prog [options]\n'

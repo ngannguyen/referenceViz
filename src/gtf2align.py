@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #nknguyen soe ucsc edu
-#March 20 2010 (first day of spring!)
+#March 20 2012 (first day of spring!)
 #Pasre GTF files and construct pairwise alignments of target regions that align to the same gene/exon
 #Input: gtf files
 #       fasta files of target sequences
@@ -48,7 +48,7 @@ class Setup( Target ):
             self.addChildTarget( ReadFasta(fa, self.options.fadir, faoutfile) )
 
         #After finishing reading input files, construct pairwise alignments:
-        self.setFollowOnTarget( BuildAlignments(gtfdir, fadir, self.options.outdir, self.options.refname2faheader) )
+        self.setFollowOnTarget( BuildAlignments(gtfdir, fadir, self.options.outdir, self.options.refname2faheader, self.options.coverage, self.options.identity) )
 
 #========= Read input files ==============
 class ReadGtf(Target):
@@ -74,114 +74,201 @@ class ReadFasta(Target):
 
 #=========== Build Alignments ===========
 class BuildAlignments(Target):
-    def __init__(self, gtfdir, fadir, outdir, refname2faheader):
+    def __init__(self, gtfdir, fadir, outdir, refname2faheader, coverage, identity):
         Target.__init__(self)
         self.gtfdir = gtfdir
         self.fadir = fadir
         self.outdir = outdir
         self.refname2faheader = refname2faheader
+        self.coverage = coverage
+        self.identity = identity
 
     def run(self):
         #Merge the gtf exons
         gtffiles = getfiles(self.gtfdir, ".pickle")
-        exons = mergeExons( [ os.path.join(self.gtfdir, f) for f in gtffiles ] )
+        gene2ref2exons = mergeExons( [ os.path.join(self.gtfdir, f) for f in gtffiles ] )
         #Merge the fasta sequences
         fafiles = getfiles(self.fadir, ".pickle")
         seqs = mergeSeqs( [os.path.join(self.fadir, f) for f in fafiles] )
 
         #for each exon, extract the target sequences, and build pairwise alignment for them
-        for exonid, targets in exons.iteritems():
-            self.addChildTarget( BuildAlignmentsExon(exonid, targets, seqs, self.refname2faheader, self.outdir) )
+        for genename, ref2exons in gene2ref2exons.iteritems():
+            self.addChildTarget( BuildAlignmentsGene(genename, ref2exons, seqs, self.refname2faheader, self.outdir, self.coverage, self.identity) )
 
         #Merge cigar files:
         #cigarfiles = getfiles(self.outdir, ".cigar")
         outfile = os.path.join( self.outdir, "all.cigar" )
         self.setFollowOnTarget(MergeFiles(self.outdir, ".cigar",  outfile))
 
-class BuildAlignmentsExon(Target):
-    def __init__(self, id, targets, seqs, refname2seqname, outdir):
+
+class BuildAlignmentsGene(Target):
+    def __init__(self, genename, ref2exons, seqs, refname2seqname, outdir, coverage, identity):
         Target.__init__(self)
-        self.id = id
-        self.targets = targets
+        self.id = genename
+        self.ref2exons = ref2exons
         self.seqs = seqs
         self.refname2seqname = refname2seqname
         self.outdir = outdir
+        self.coverage = coverage
+        self.identity = identity
 
     def run(self):
-        seqs = extractTargetSeqs( self.targets, self.seqs, self.refname2seqname ) 
+        ref2header2seq = extractTargetSeqs( self.ref2exons, self.seqs, self.refname2seqname ) 
         #Write fasta files:
         globalTempDir = self.getGlobalTempDir()
-        for header, seq in seqs.iteritems():
-            file = os.path.join(globalTempDir, header)
-            f = open(file, 'w')
-            f.write('>%s\n' %header)
-            f.write('%s\n' %seq)
-            f.close()
+        for ref in ref2header2seq: #each reference
+            system("mkdir -p %s" %( os.path.join(globalTempDir, ref)))
+            for header, seq in ref2header2seq[ref].iteritems(): #write each exon to a fasta file (because lastz's [multiple] option omitted extremely short alignments and therefore miss some exon. So to have each exon in a separate file, we don't have to use the [multiple] option anymore
+                file = os.path.join(globalTempDir, ref, header)
+                f = open(file, 'w')
+                f.write('>%s\n' %header)
+                f.write('%s\n' %seq)
+                f.close()
 
         #Pairwise alignment
-        headers = sorted( seqs.keys() )
+        headers = sorted( ref2header2seq.keys() ) #list of reference
         cigarfiles = []
         noAlignFile = os.path.join(self.outdir, "noAlign.txt")
 
         for i in xrange( len(headers) -1 ):
-            file1 = os.path.join( globalTempDir, headers[i] ) #tempdir/h1
-            file2 = os.path.join( globalTempDir, headers[i + 1] ) #tempdir/h2
-            
-            outfile = os.path.join(globalTempDir, "%s-%s.cigar" %(headers[i], headers[i+1])) #tempdir/h1-h2.cigar
-            cigarfiles.append(outfile)
-            self.addChildTarget( PairwiseAlignment(file1, file2, outfile, noAlignFile) )
-        
-        #for i in xrange(len(headers) - 1):
-        #    file1 = os.path.join( globalTempDir, headers[i] ) #tempdir/h1
-        #    for j in xrange( i+1, len(headers) ):
-        #        file2 = os.path.join( globalTempDir, headers[j] ) #tempdir/h2
-        #        outfile = os.path.join(globalTempDir, "%s-%s.cigar" %(headers[i], headers[j])) #tempdir/h1-h2.cigar
-        #        cigarfiles.append(outfile)
-        #        self.addChildTarget( PairwiseAlignment(file1, file2, outfile) )
+            ref1 = headers[i]
+            ref2 = headers[i + 1]
+            for exon1 in ref2header2seq[ref1].keys():
+                file1 = os.path.join(globalTempDir, ref1, exon1)
+                for exon2 in ref2header2seq[ref2].keys():
+                    file2 = os.path.join(globalTempDir, ref2, exon2)
+                    outfile = os.path.join(globalTempDir, "%s_%s-%s_%s.cigar" %(ref1, exon1, ref2, exon2)) #tempdir/h1-h2.cigar
+                    cigarfiles.append(outfile)
+                    self.addChildTarget( PairwiseAlignment(self.id, file1, file2, outfile, noAlignFile, self.coverage, self.identity) )
         
         #Merge output cigar files:
         mergedOutfile = os.path.join(self.outdir, "%s.cigar" % self.id.replace(";", "_"))
         #self.setFollowOnTarget( MergeFiles(globalTempDir, ".cigar", mergedOutfile) )
-        self.setFollowOnTarget( MergeFiles0(cigarfiles, mergedOutfile) )
+        self.setFollowOnTarget( MergeFiles0(cigarfiles, mergedOutfile, ref2header2seq) )
+
+#class BuildAlignmentsGene(Target):
+#    def __init__(self, genename, ref2exons, seqs, refname2seqname, outdir, coverage, identity):
+#        Target.__init__(self)
+#        self.id = genename
+#        self.ref2exons = ref2exons
+#        self.seqs = seqs
+#        self.refname2seqname = refname2seqname
+#        self.outdir = outdir
+#        self.coverage = coverage
+#        self.identity = identity
+#
+#    def run(self):
+#        ref2header2seq = extractTargetSeqs( self.ref2exons, self.seqs, self.refname2seqname ) 
+#        #Write fasta files:
+#        globalTempDir = self.getGlobalTempDir()
+#        for ref in ref2header2seq: #each reference
+#            file = os.path.join(globalTempDir, ref)
+#            f = open(file, 'w')
+#            for header, seq in ref2header2seq[ref].iteritems(): #each exon
+#                f.write('>%s\n' %header)
+#                f.write('%s\n' %seq)
+#            f.close()
+#
+#        #Pairwise alignment
+#        headers = sorted( ref2header2seq.keys() ) #list of reference
+#        cigarfiles = []
+#        noAlignFile = os.path.join(self.outdir, "noAlign.txt")
+#
+#        for i in xrange( len(headers) -1 ):
+#            file1 = os.path.join( globalTempDir, headers[i] ) #tempdir/h1
+#            file2 = os.path.join( globalTempDir, headers[i + 1] ) #tempdir/h2
+#            
+#            outfile = os.path.join(globalTempDir, "%s-%s.cigar" %(headers[i], headers[i+1])) #tempdir/h1-h2.cigar
+#            cigarfiles.append(outfile)
+#            self.addChildTarget( PairwiseAlignment(self.id, file1, file2, outfile, noAlignFile, self.coverage, self.identity) )
+#        
+#        #for i in xrange(len(headers) - 1):
+#        #    file1 = os.path.join( globalTempDir, headers[i] ) #tempdir/h1
+#        #    for j in xrange( i+1, len(headers) ):
+#        #        file2 = os.path.join( globalTempDir, headers[j] ) #tempdir/h2
+#        #        outfile = os.path.join(globalTempDir, "%s-%s.cigar" %(headers[i], headers[j])) #tempdir/h1-h2.cigar
+#        #        cigarfiles.append(outfile)
+#        #        self.addChildTarget( PairwiseAlignment(file1, file2, outfile) )
+#        
+#        #Merge output cigar files:
+#        mergedOutfile = os.path.join(self.outdir, "%s.cigar" % self.id.replace(";", "_"))
+#        #self.setFollowOnTarget( MergeFiles(globalTempDir, ".cigar", mergedOutfile) )
+#        self.setFollowOnTarget( MergeFiles0(cigarfiles, mergedOutfile, ref2header2seq) )
 
 class PairwiseAlignment(Target):
-    def __init__(self, file1, file2, outfile, noAlignFile):
+    def __init__(self, id, file1, file2, outfile, noAlignFile, coverage, identity):
         Target.__init__(self)
+        self.id = id
         self.file1 = file1
         self.file2 = file2
         self.outfile = outfile
         self.noAlignFile = noAlignFile
+        self.coverage = coverage
+        self.identity = identity
 
     def run(self):
-        system("lastz %s %s --output=%s --format=cigar --coverage=90" %(self.file1, self.file2, self.outfile) )
+        localTempDir = self.getLocalTempDir()
+        outfile = os.path.join(localTempDir, 'out.cig')
+        system("lastz %s[unmask] %s[unmask] --output=%s --format=cigar --coverage=%d --identity=%d --hspthresh=top100%%" %(self.file1, self.file2, outfile, self.coverage, self.identity) )
+        #system("lastz %s[unmask,multiple] %s[unmask,multiple] --output=%s --format=cigar --coverage=%d --identity=%d --hspthresh=top100%%" %(self.file1, self.file2, outfile, self.coverage, self.identity) )
+        #system("lastz %s[multiple] %s[multiple] --output=%s --format=cigar --coverage=95" %(self.file1, self.file2, outfile) )
         
+        cigars = readCigarFile(outfile)
+        fcigs,failedCigs = filterCigars(cigars)
+        printCigars(fcigs, self.outfile)
+
         #Check to make sure that output file is not empty:
-        f = open(self.outfile, 'r')
-        numCigars = 0
-        for line in f:
-            line = line.strip()
-            if re.match('cigar:', line):
-                numCigars += 1
-        f.close()
-        if numCigars == 0:
+        if len(cigars) == 0:
             nf = open(self.noAlignFile, 'a')
-            nf.write("%s\t%s\n" %(os.path.basename(self.file1), os.path.basename(self.file2)))
+            nf.write("%s\t%s\t%s\n" %(self.id, os.path.basename(self.file1), os.path.basename(self.file2)))
             nf.close()
             #raise NoAlignmentError("%s and %s do not have any alignment that passed coverage cutoff of 90%.\n" %(file1, file2))
-        elif numCigars > 1:
+        elif len(cigars) > len(fcigs):
             mf = open( os.path.join(self.noAlignFile.rstrip( os.path.basename(self.noAlignFile) ), "multiAlign.txt") , 'a' )
-            mf.write("%s\t%s\n" %(os.path.basename(self.file1), os.path.basename(self.file2)))
+            mf.write("\n%s\t%s\t%s\n" %(self.id, os.path.basename(self.file1), os.path.basename(self.file2)))
+            for c in failedCigs:
+                mf.write("\t%s\n" %c.line)
             mf.close()
 
 class MergeFiles0(Target):
-    def __init__(self, infiles, outfile):
+    def __init__(self, infiles, outfile, ref2header2seq):
         Target.__init__(self)
         self.infiles = infiles
         self.outfile = outfile
+        self.ref2header2seq = ref2header2seq
 
     def run(self):
-        if len(self.infiles) > 0:
-            system("cat %s > %s" %(" ".join(self.infiles), self.outfile) )
+        genename = os.path.basename(self.outfile).rstrip('cigar').rstrip('.')
+        
+        if len(self.infiles) == 0:
+            f = open("alignStats.txt", 'a')
+            f.write("%s\tNo alignment\n" % genename)
+            f.close()
+            return
+        
+        #system("cat %s > %s" %(" ".join(self.infiles), self.outfile) )
+        if os.path.exists( self.outfile ):
+            system("rm %s" %self.outfile)
+        for infile in self.infiles:
+            system("cat %s >> %s" %(infile, self.outfile))
+
+        cigars = readCigarFile(self.outfile)
+        alignedExons = []
+        for cig in cigars:
+            if cig.name1 not in alignedExons:
+                alignedExons.append(cig.name1)
+            if cig.name2 not in alignedExons:
+                alignedExons.append(cig.name2)
+        allexons = []
+        for ref, header2seq in self.ref2header2seq.iteritems():
+            allexons.extend( header2seq.keys() )
+        f = open("alignStats.txt", 'a')
+        pc = 0.0
+        if len(allexons) > 0:
+            pc = 100.0*len(alignedExons)/len(allexons)
+        f.write("%s\t%d\t%d\t%.3f\n" %(genename, len(alignedExons), len(allexons), pc))
+        f.close()
+
 
 class MergeFiles(Target):
     def __init__(self, indir, extension, outfile):
@@ -221,7 +308,66 @@ class Exon():
         self.genename = iddict['gene_name']
         self.exon = iddict['exon_number']
 
+class Cigar():
+    def __init__(self, line):
+        line = line.strip()
+        items = line.split()
+        if len(items) < 12:
+            raise ValueError("Wrong Cigar format. At least 12 fields are expected. Only saw %d. Line: %s\n" %(len(items), line))
+        #query
+        self.name1 = items[1]
+        self.start1 = int(items[2])
+        self.end1 = int(items[3])
+        self.strand1 = items[4]
+
+        #target
+        self.name2 = items[5]
+        self.start2 = int(items[6])
+        self.end2 = int(items[7])
+        self.strand2 = items[8]
+        self.score = items[9]
+        self.cigarstr = " ".join(items[10:])
+        self.line = line
+
 ############### UTILITIES FUNCTIONS ############
+def readCigarFile(file):
+    f = open(file, 'r')
+    cigars = []
+    for line in f:
+        cigars.append( Cigar(line) )
+    f.close()
+    return cigars 
+
+def filterCigars(cigars):
+    #Filter out target (field 1) that mapped to multiple places
+    filteredCigars = []
+    failedCigars = []
+    name1hits = {}
+    name2hits = {}
+    for cig in cigars:
+        if cig.name1 not in name1hits:
+            name1hits[cig.name1] = 1
+        else:
+            name1hits[cig.name1] += 1
+
+        if cig.name2 not in name2hits:
+            name2hits[cig.name2] = 1
+        else:
+            name2hits[cig.name2] += 1
+
+    for cig in cigars:
+        if name1hits[cig.name1] == 1 and name2hits[cig.name2] == 1:
+            filteredCigars.append(cig)
+        else:
+            failedCigars.append(cig)
+    return filteredCigars, failedCigars
+
+def printCigars(cigars, outfile):
+    f = open(outfile, 'w')
+    for cig in cigars:
+        f.write("%s\n" %cig.line)
+    f.close()
+
 def getfiles(dir, extension):
     allfiles = os.listdir(dir)
     files = []
@@ -230,8 +376,25 @@ def getfiles(dir, extension):
             files.append(file)
     return files
 
+def addExonToList(exons, exon):
+    #Make sure that the exon does not overlap with any exon in the list. If two exons are overlapped, pick the longer one
+    overlapIndices = []
+    for i, e in enumerate(exons):
+        if e.start < exon.end and exon.start < e.end: #overlap
+            overlapIndices.append(i)
+    
+    if len(overlapIndices) == 0:#did not have any overlapped exon
+        exons.append(exon)
+    elif len(overlapIndices) == 1: #overlapped with 1 exon:
+        i = overlapIndices[0]
+        e = exons[i]
+        if exon.end - exon.start > e.end - e.start: #if exon is longer than e, replace e with exon:
+            exons[i] = exon
+    else: #overlapped with multiple exon, don't add it
+        return
+
 def readGtfFile(file, name2offset):
-    exons = {} #key = txname + exonNumber, val = list of Exons
+    exons = {} #key = genename, val = list of Exons
     f = open(file, 'r')
     for line in f:
         exon = Exon(line)
@@ -239,9 +402,10 @@ def readGtfFile(file, name2offset):
             offset = name2offset[ exon.tname ]
             exon.start -= offset
             exon.end -= offset
-        header = "%s;%s" %(exon.txname, exon.exon)
+        #header = "%s;%s" %(exon.txname, exon.exon)
+        header = exon.genename
         if header in exons:
-            exons[header].append( exon )
+            addExonToList( exons[header], exon )
         else:
             exons[header] = [exon]
     f.close()
@@ -270,15 +434,18 @@ def readFastaFile(file):
     return seqs
 
 def mergeExons(files):
-    exons = {}
-    for file in files:
+    gene2ref2exons = {} #key = genename, val = {refname: list of exons}
+    for file in files:#each ref
+        ref = os.path.basename(file).rstrip("pickle").rstrip(".")
         currExons = pickle.load( gzip.open(file, "rb") )
-        for id, exonList in currExons.iteritems():
-            if id in exons:
-                exons[id].extend( exonList )
+        for id, exonList in currExons.iteritems(): #each gene
+            if id in gene2ref2exons:
+                gene2ref2exons[id][ref] = exonList
+                #exons[id].append( exonList )
             else:
-                exons[id] = exonList
-    return exons
+                gene2ref2exons[id] = { ref: exonList }
+                #exons[id] = [exonList]
+    return gene2ref2exons
 
 def mergeSeqs(files):
     seqs = {}
@@ -301,17 +468,19 @@ def tname2faHeader(file):
     f.close()
     return tname2fa
 
-def extractTargetSeqs( targets, seqs, refname2seqname ):
-    extractedSeqs = {}
-    for target in targets:
-        if target.tname not in refname2seqname:
-            raise ValueError("Target %s does not have a specified sequence header\n" %target.tname)
-        seqname = refname2seqname[ target.tname ]
-        if seqname not in seqs:
-            raise ValueError("Could not find sequence %s. Seqs include: %s\n" %(seqname, ','.join(seqs.keys()) ))
-        header, seq = extractSeq( target.start, target.end, seqname, seqs[seqname] )
-        extractedSeqs[header] = seq
-    return extractedSeqs
+def extractTargetSeqs( ref2exons, seqs, refname2seqname ):
+    ref2extractedSeqs = {}
+    for ref, exons in ref2exons.iteritems(): #each exon list 
+        ref2extractedSeqs[ref] = {}
+        for exon in exons:
+            if exon.tname not in refname2seqname:
+                raise ValueError("Target %s does not have a specified sequence header\n" %exon.tname)
+            seqname = refname2seqname[ exon.tname ]
+            if seqname not in seqs:
+                raise ValueError("Could not find sequence %s. Seqs include: %s\n" %(seqname, ','.join(seqs.keys()) ))
+            header, seq = extractSeq( exon.start, exon.end, seqname, seqs[seqname] )
+            ref2extractedSeqs[ref][header] = seq
+    return ref2extractedSeqs
 
 def extractSeq(start, end, header, seq):
     #apd.chr6_apd_hap1.4622290.0.4622290.1
@@ -375,6 +544,8 @@ def addOptions( parser ):
     parser.add_option('-f', '--fastaDir', dest='fadir', help='Required argument. Directory that contains fasta files of target sequences. Default=%default')
     parser.add_option('-r', '--refname2faHeader', dest='refname2faheader', help='Required argument. File mapping refname in the gtf file to fasta header. Format:<gtfname> <faheader>')
     parser.add_option('-c', '--offsets', dest='offsets', help='Vega uses "HGCHR6_MHC_***" (whole human chrom 6 with the *** MHC haplotype), which are different from 6_*** (just the *** MHC haplotype), this off set file specifies the offsets between 6_*** and HGCHR6_MHC_***. Format: <HGCHR6_MHC_***> <start coordinate of the MHC region>')
+    parser.add_option('--coverage', dest='coverage', default=95, type='int', help='Minimum alignment coverage. Default=%default')
+    parser.add_option('--identity', dest='identity', default=90, type='int', help='Minimum alignment identity. Default=%default')
 
 def checkOptions(parser, options, args):
     #Input directory
@@ -392,7 +563,7 @@ def checkOptions(parser, options, args):
     #Fasta directory
     if not os.path.exists(options.fadir):
         raise NonExistFileError("Fasta directory %s does not exist.\n" %options.fadir)
-    if not os.path.isdir(options.indir):
+    if not os.path.isdir(options.fadir):
         raise NotDirectoryError("Fasta directory %s is not a directory.\n" %options.fadir)
 
     #refname2faheader

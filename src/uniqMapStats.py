@@ -144,6 +144,7 @@ class RunExp(Target):
         crefRepeat = repeat(crefIntervals, crefLocalDir)
         crefVcf = os.path.join(crefLocalDir, 'merge.vcf') 
         crefSnpcount2 = getSnpSubRegions(crefSites, crefVcf, crefLocalDir)
+        crefUsites = os.path.join(crefLocalDir, "uniqSites.txt")
 
         orefSites = readPileup(orefUpileup)
         orefIntervals = covFilter(orefSites, 0)
@@ -151,6 +152,7 @@ class RunExp(Target):
         orefRepeat = repeat(orefIntervals, orefLocalDir)
         orefVcf = os.path.join(orefLocalDir, 'merge.vcf') 
         orefSnpcount2 = getSnpSubRegions(orefSites, orefVcf, orefLocalDir)
+        orefUsites = os.path.join(orefLocalDir, "uniqSites.txt")
         
         #======== PRINT TO OUTPUT FILE =============
         crefout = printCount(crefUcount, crefPileupCount, crefSnpcount, crefUpileupCount, crefUsnpcount, crefSnpcount2, crefLocalDir)
@@ -165,9 +167,12 @@ class RunExp(Target):
         system("cp %s %s" %(crefout, crefOutdir))
         system("cp %s %s" %(crefLendist, crefOutdir))
         system("cp %s %s" %(crefRepeat, crefOutdir))
+        system("cp %s %s" %(crefUsites, crefOutdir))
+
         system("cp %s %s" %(orefout, orefOutdir))
         system("cp %s %s" %(orefLendist, orefOutdir))
         system("cp %s %s" %(orefRepeat, orefOutdir))
+        system("cp %s %s" %(orefUsites, orefOutdir))
 
         #======== Test with dbSNP ==========
         dbsnps = readDbSNPs(self.options.dbsnp, self.options.startCoord, self.options.endCoord) 
@@ -587,8 +592,10 @@ def initOptions( parser ):
     parser.add_option('-o', '--outdir', dest='outdir', help='Output directory. Default = ./uniqMapping')
     parser.add_option('-c', '--covCutoff', dest='covCutoff', type='int', default = 0.9, help='Coverage cutoff. Default = 0.9' )
     parser.add_option('-d', '--dbSNP', dest='dbsnp', help='dbSNPfile', default='/hive/users/nknguyen/reconGit/referenceScripts/data/snp134.txt')
-    parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', default=28477754, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
-    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', default=33448354, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
+    #parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', default=28477754, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
+    parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', default=28585733, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
+    #parser.add_option('-e', '--endCoord', dest='endCoord', type='int', default=33448354, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
+    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', default=33556332, help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
  
     #parser.add_option()
 

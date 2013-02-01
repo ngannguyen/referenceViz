@@ -66,7 +66,9 @@ def getRef(frag, refs):
     for r in refs:
         if r.start <= start and end <= r.start + r.fraglen:
             return r
-    raise ValueError("Could not find sequence header that is a super-sequence of %s\n" %frag.longname)
+    #raise ValueError("Could not find sequence header that is a super-sequence of %s\n" %frag.longname)
+    sys.stderr.write("%s\n" %frag.longname)
+    return frag
 
 def convertRef(name, start, end, refs):
     currRef = Ref(name)
@@ -83,7 +85,7 @@ def convertRef(name, start, end, refs):
 
     if newstart < 0 or newend < 0:
         raise ValueError("Negative coordinates: old ref: %s, old start: %d, old end: %d; newref: %s, new start: %d, new end: %d\n" %(name, start, end, newname, newstart, newend))
-    elif abs(newend - newstart) > ref.fraglen:
+    elif ref.fraglen > 0 and abs(newend - newstart) > ref.fraglen:
         raise ValueError("Out of range: old ref: %s, old start: %d, old end: %d; newref: %s, new start: %d, new end: %d\n" %(name, start, end, newname, newstart, newend))
     
     return newname, newstart, newend
