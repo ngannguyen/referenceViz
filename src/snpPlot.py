@@ -5,7 +5,7 @@ Create Snp plots
 nknguyen at soe dot ucsc dot edu
 Jun 15 2011
 """
-import os, sys
+import os, sys, re
 from optparse import OptionParser
 import xml.etree.ElementTree as ET
 
@@ -75,17 +75,103 @@ def setAxes(fig, range1, range2):
     ax = fig.add_axes( [axleft, axbottom + h2 + margin, axwidth, h1] )
     return ax, ax2
 
-def drawSnpPlot(options, samples1, samples2):
-    #All the samples sorted indecreasing order of SNP rate, then average, then chimp
+def drawSnpPlot_noOutgroup(options, samples1, samples2):
+    #All the samples sorted indecreasing order of SNP rate, then average, then outgroup
     samples1 = sorted( samples1, key=lambda s:s.errPerSite, reverse=True )
     if len( samples1 ) < 1:
         return
     
-    chimpSample = None
-    #remove chimpSample
+    refname1 = samples1[0].refname
+    refname2 = samples2[0].refname
+
+    y1data = [ s.errPerSite for s in samples1 ]
+    xticklabels = [s.name for s in samples1]
+    
+    y1data.append(0) #snps of refname1 w.r.t itself (which is 0)
+    xticklabels.append(refname1)
+
+    y2data = []
+    for name in xticklabels:
+        if name == refname2:
+            y2data.append(0) #snps of refname2 w.r.t itself
+        for s2 in samples2:
+            if s2.name == name:
+                y2data.append(s2.errPerSite)
+                break
+
+    if len(y1data) != len(y2data):
+        sys.stderr.write("Input files have different number of samples: %d, %d\n" %(len(y1data), len(y2data)))
+        sys.exit(1)
+    
+    #add the average column:
+    if len(y1data) >= 2:
+        y1avr = sum(y1data)/float(len(y1data) -1)
+        y1data.append(y1avr)
+        y2avr = sum(y2data)/float(len(y2data) -1)
+        y2data.append(y2avr)
+        
+        #Print summary stats to stderr:
+        sys.stderr.write("%s\t%f\t%f\t%f\n" %( refname1, sorted(y1data)[1] , max(y1data), y1avr ))
+        sys.stderr.write("%s\t%f\t%f\t%f\n" %( refname2, sorted(y2data)[1] , max(y2data), y2avr ))
+        
+
+    xticklabels.append('average')
+    
+    #Min, max values:
+    minMajority = min( [min(y1data), min(y2data)] ) - 0.001
+    maxMajority = max( [max(y1data), max(y2data)] ) + 0.001
+    if minMajority < 0:
+        minMajority = -0.0001
+
+    #Set up
+    basename = os.path.basename(options.files[0])
+    options.out = os.path.join(options.outdir, '%s' %(basename.lstrip('snpStats').lstrip('_').rstrip('.xml')) )
+    fig, pdf = libplot.initImage( 11.2, 10.0, options )
+    ax = libplot.setAxes(fig)
+
+    l2 = ax.plot( y2data, marker='.', markersize=14.0, linestyle='none', color="#E31A1C" )
+    l1 = ax.plot( y1data, marker='.', markersize=14.0, linestyle='none', color="#1F78B4" )
+  
+    #Legend
+    fontP = FontProperties()
+    fontP.set_size("x-small")
+    legend = ax.legend([l1, l2], [libplot.properName(refname1), libplot.properName(refname2)], 'upper left', numpoints=1, prop=fontP)
+    legend._drawFrame = False
+
+    ax.set_ylim( minMajority, maxMajority )
+    ax.set_xlim( -0.5, len(xticklabels) -0.5 )
+
+    #ax2.set_xticks( range( 0, len(xticklabels) ) )
+    #properxticklabels = [ libplot.properName(l) for l in xticklabels ]
+    #ax2.set_xticklabels( properxticklabels )
+    ax.set_xticks( range(0, len(xticklabels)) )
+    ax.set_xticklabels( xticklabels )
+
+    for label in ax.xaxis.get_ticklabels():
+        label.set_rotation( 90 )
+   
+    ax.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+    ax.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+
+    ax.set_xlabel( 'Samples' )
+    ax.set_ylabel( 'SNPs per site' )
+    title = 'SNPs'
+    ax.set_title( title )
+    
+    libplot.writeImage( fig, pdf, options )
+
+
+def drawSnpPlot(options, samples1, samples2, outgroup):
+    #All the samples sorted indecreasing order of SNP rate, then average, then outgroup
+    samples1 = sorted( samples1, key=lambda s:s.errPerSite, reverse=True )
+    if len( samples1 ) < 1:
+        return
+    
+    outgroupSample = None
+    #remove outgroupSample
     for i, s in enumerate(samples1):
-        if s.name == "panTro3":
-            chimpSample = samples1.pop(i)
+        if re.search(outgroup, s.name):
+            outgroupSample = samples1.pop(i)
             break
     refname1 = samples1[0].refname
     refname2 = samples2[0].refname
@@ -123,13 +209,14 @@ def drawSnpPlot(options, samples1, samples2):
 
     xticklabels.append('average')
     
-    #add chimp:
-    samples1.append(chimpSample)
-    y1data.append( chimpSample.errPerSite )
-    for s in samples2:
-        if s.name == 'panTro3':
-            y2data.append( s.errPerSite )
-    xticklabels.append( 'panTro3' )
+    #add outgroup:
+    if outgroupSample: 
+        samples1.append(outgroupSample)
+        y1data.append( outgroupSample.errPerSite )
+        for s in samples2:
+            if re.search(outgroup, s.name):
+                y2data.append( s.errPerSite )
+        xticklabels.append( outgroup )
 
     #Min, max values:
     num = options.numOutliners
@@ -227,6 +314,7 @@ def main():
     parser = OptionParser( usage = usage )
     initOptions( parser )
     libplot.initOptions( parser )
+    parser.add_option('--outgroup', dest='outgroup', help='Name of outgroup sample')
 
     options, args = parser.parse_args()
     checkOptions( args, options, parser )
@@ -234,7 +322,8 @@ def main():
     
     statsList = readfiles( options )
 
-    drawSnpPlot( options, statsList[0], statsList[1] )
+    #drawSnpPlot( options, statsList[0], statsList[1], options.outgroup )
+    drawSnpPlot_noOutgroup( options, statsList[0], statsList[1] )
     
 
 if __name__ == "__main__":

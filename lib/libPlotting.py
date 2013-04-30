@@ -31,7 +31,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 ##############################
-import matplotlib
+import matplotlib, re
 #matplotlib.use('Agg')
 from numpy import *
 from matplotlib.ticker import LogLocator
@@ -62,8 +62,10 @@ def initImage( width, height, options ):
    both a fig and pdf object. options must contain outFormat,
    and dpi
    """
+   #matplotlib.use('PDF')
    import matplotlib.backends.backend_pdf as pltBack
    import matplotlib.pyplot as plt
+   
    pdf = None
    if options.outFormat == 'pdf' or options.outFormat == 'all':
       pdf = pltBack.PdfPages( options.out + '.pdf' )
@@ -271,8 +273,15 @@ def properName(name):
          'ref/hg19':'ref',\
          'minusOtherReference':'not in GRCh37'
          }
+
     if name in d:
         return d[name]
+
+    if re.search("EscherichiaColi", name):
+        name = "E.coli%s" % name.lstrip("EscherichiaColi").split("Uid")[0]
+    elif re.search("Shigella", name):
+        name = "S.%s" % name.lstrip("Shigella").split("Uid")[0]
+    
     return name
 
 #============== LATEX =========

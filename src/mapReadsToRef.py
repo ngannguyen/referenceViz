@@ -11,12 +11,9 @@ from optparse import OptionParser
 
 from jobTree.scriptTree.target import Target
 from jobTree.scriptTree.stack import Stack
-from jobTree.src.bioio import getTempFile
 
 from sonLib.bioio import logger
 from sonLib.bioio import system
-from sonLib.bioio import nameValue
-from sonLib.bioio import getTempDirectory
 from sonLib.bioio import setLogLevel
 
 class Setup(Target):

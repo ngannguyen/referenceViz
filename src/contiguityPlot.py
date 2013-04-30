@@ -96,11 +96,15 @@ def drawData( axes, stats, options ):
     colors = libplot.getColors1()
     if len(stats) < 1:
         return
-    if stats[0].reference == "reference":
+    #if stats[0].reference == "reference":
+    if stats[0].reference == "ProgressiveCactusRoot":
         colors.pop(0)
-    elif stats[0].reference == 'hg19':
+    #elif stats[0].reference == 'hg19':
+    else:
         colors.pop(1)
 
+    if len(colors) < len(stats):
+        colors = libplot.getColors( len(stats) )
     #===========
 
     #dash = 0
@@ -211,6 +215,8 @@ def drawCompareData( axesList, xstats, ystats, options ):
     #Only draw the overlapped samples:
     #colors = libplot.getColors2( len(xstats) )
     colors = libplot.getColors1()
+    if len(colors) < len(xstats):
+        colors = libplot.getColors( len(xstats) )
     #colorindex = -1
     #colorindex = 0
     colorindex = 1
@@ -269,8 +275,8 @@ def drawCompareData( axesList, xstats, ystats, options ):
         l.set_fontsize('small')
 
     #legend:
-    legend = p0axes.legend( lines, [ libplot.properName(n) for n in sampleNames], 'lower right', numpoints = 1, prop=fontP, ncol = 2)
-    legend._drawFrame = False
+    #legend = p0axes.legend( lines, [ libplot.properName(n) for n in sampleNames], 'lower right', numpoints = 1, prop=fontP, ncol = 2)
+    #legend._drawFrame = False
     
     #p0axes.set_xlim( -0.005, 1.005 )
     #p0axes.set_ylim( -0.005, 1.005 )
@@ -280,11 +286,6 @@ def drawCompareData( axesList, xstats, ystats, options ):
     p0axes.set_xlim( ycutoff - (1-ycutoff)*0.02, 1 + (1 - ycutoff)*0.01 )
     p0axes.set_ylim( ycutoff - (1-ycutoff)*0.02, 1 + (1 - ycutoff)*0.01 )
    
-    #box = p0axes.get_position()
-    #p0axes.set_position([box.x0, box.y0, box.width * 0.8, box.height * 0.8])
-    #legend = pyplot.legend( lines, sampleNames, numpoints = 1, prop= fontP, loc="best", bbox_to_anchor=(1, 0.6))
-    #legend._drawFrame=False
-    
     #DRAW AGGREGATE DATA (plot 1 and plot 2):
     nbins = 20
     p1axes = axesList[1]
@@ -337,7 +338,7 @@ def drawContiguityPlot( options, stats ):
     axes = libplot.setAxes( fig )
     
     lines, sampleNames, ymin = drawData( axes, stats, options )
-    drawLegend( axes, lines, sampleNames, options )
+    #drawLegend( axes, lines, sampleNames, options )
     if options.ycutoff:
         setAxisLimits( axes, options.ycutoff )
     else:
@@ -433,7 +434,8 @@ def initOptions( parser ):
                        help='Only points with y-value from ycutoff to 1 are displayed')
     parser.add_option('--outdir', dest='outdir', default='.', help='Output directory')
     parser.add_option('--includeCoverage', dest='includeCov', action="store_true", default=False, help='If specified, will include coverage info in the plots')
-    parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
+    #parser.add_option('--samplesOrder', dest="samplesOrder", default="reference,hg19,apd,cox,dbb,mann,mcf,qbl,ssto,venter,NA12892,NA12878,NA19239,NA19238,NA19240,nigerian,yanhuang,panTro3", help="Samples order")
+    parser.add_option('--samplesOrder', dest="samplesOrder") 
     parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
 
 def checkOptions( args, options, parser ):
@@ -452,8 +454,9 @@ def checkOptions( args, options, parser ):
     #system("mkdir -p %s" % options.outdir)
     if options.legendElements:
         options.legendElements = options.legendElements.split(',')
-    options.samplesOrder = options.samplesOrder.split(',')
-    
+    if options.samplesOrder:
+        options.samplesOrder = options.samplesOrder.split(',')
+
     if options.filteredSamples:
         options.filteredSamples = options.filteredSamples.split('-')
     else:
@@ -480,7 +483,7 @@ def main():
     for stats in statsList:
         sortedStats = Stats( stats.name )
         sortedStats.setRefName( stats.refname )
-        if len(options.samplesOrder) == 0:
+        if not options.samplesOrder:
             sortedSamples = sorted(stats, key=lambda s:s.name)
             sortedStats.extend( sortedSamples )
         else:

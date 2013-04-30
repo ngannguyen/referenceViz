@@ -32,7 +32,8 @@ def renameFaFile(filename, outdir):
     for line in ifh:
         if len(line) > 1 and line[0] == '>':
             items = line.lstrip('>').split()
-            seqname = convertToAlnum(items[0])
+            subitems = items[0].rstrip('|').split('|')
+            seqname = convertToAlnum(subitems[-1])
             ofh.write(">%s\n" %seqname)
         else:
             ofh.write(line)
