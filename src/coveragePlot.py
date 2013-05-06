@@ -279,7 +279,7 @@ def drawCompareData( axes, options, stats, isAbs ):
     fontP = FontProperties()
     fontP.set_size('small')
     #pyplot.xticks( x + barwidth/2., samples, rotation=45, fontproperties=fontP )
-    pyplot.xticks( x2data, samples, rotation=45, fontproperties=fontP )
+    pyplot.xticks( x2data, samples, rotation=90, fontproperties=fontP )
     pyplot.yticks( fontproperties=fontP )
 
     #HACK:
@@ -324,7 +324,7 @@ def drawCompareCoveragePlot( options, stats, isAbs ):
         prefix = "cmpRelCoverage_"
     options.out = os.path.join( options.outdir, "%s%s_%s" %(prefix, stats[0].referenceName, stats[0].otherReferenceName) )
     fig, pdf = libplot.initImage( 12.0, 8.0, options )
-    axes = fig.add_axes( [0.09, 0.2, 0.9, 0.6] )
+    axes = fig.add_axes( [0.09, 0.28, 0.9, 0.65] )
 
     drawCompareData( axes, options, stats, isAbs )
     libplot.writeImage( fig, pdf, options )
@@ -482,7 +482,7 @@ def drawCompareData2( axes, options, stats, isAbs ):
         samples.append( libplot.properName(sample.name) )
     fontP = FontProperties()
     fontP.set_size('small')
-    pyplot.xticks( [x + barwidth/2.0 for x in x1data], samples, rotation=45, fontproperties=fontP )
+    pyplot.xticks( [x + barwidth/2.0 for x in x1data], samples, rotation=90, fontproperties=fontP )
     pyplot.yticks( fontproperties=fontP )
 
     #HACK:
@@ -521,7 +521,7 @@ def drawCompareCoveragePlot2( options, stats, isAbs ):
         prefix = "cmpRelCoverage2_"
     options.out = os.path.join( options.outdir, "%s%s_%s" %(prefix, stats[0].referenceName, stats[0].otherReferenceName) )
     fig, pdf = libplot.initImage( 12.0, 8.0, options )
-    axes = fig.add_axes( [0.09, 0.2, 0.9, 0.6] )
+    axes = fig.add_axes( [0.09, 0.28, 0.9, 0.65] )
 
     drawCompareData2( axes, options, stats, isAbs )
     libplot.writeImage( fig, pdf, options )
@@ -591,7 +591,8 @@ def drawScatterAvg( axes, options, stats, cumulative ):
     axes.xaxis.set_ticks_position( 'bottom' )
     axes.yaxis.set_ticks_position( 'left' )
     
-    ylabel = "Number of positions"
+    #ylabel = "Number of positions"
+    ylabel = "% total positions"
     axes.set_xlim(xmin, xmax)
     axes.set_ylim(miny, maxy)
     axes.set_xlabel( 'Number of samples' )
@@ -852,7 +853,7 @@ def main():
                 sortedstats.append( s )
         if len(sortedstats) > 0:
             #drawCompareCoveragePlot( options, sortedstats, True )
-            #drawCompareCoverageTab( options, sortedstats, sample2repeat )
+            drawCompareCoverageTab( options, sortedstats, sample2repeat )
             drawSampleCoverage( options, sortedstats, True )
 
         #sort by totalBases, but include 'otherReference' sample
@@ -875,6 +876,8 @@ def main():
         #scatter plot
         drawScatterPlot( options, stats, 'average', False )
         drawScatterPlot( options, stats, 'average', True )
+        drawScatterPlot( options, stats, 'averageNall', False )
+        drawScatterPlot( options, stats, 'averageNall', True )
         #drawScatterPlot( options, stats, 'consensusVShg19', False )
         #drawScatterPlot( options, stats, 'consensusVShg19', True )
         #drawScatterPlot( options, stats, 'noHg19', False )

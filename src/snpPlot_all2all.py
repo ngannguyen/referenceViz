@@ -62,8 +62,9 @@ class Setup(Target):
             self.setFollowOnTarget( ProcessSnpStats(self.options, self.options.snpdir) )
         else:
             #launch ktserver
-            exp = getExperiment(self.options.expPath)
-            ktserver = launchDbServer(exp)
+            if self.options.launchKtserver:
+                exp = getExperiment(self.options.expPath)
+                self.options.ktserver = launchDbServer(exp)
 
             #run snpStats with each sample as reference for all samples
             snpdir = os.path.join(self.options.outdir, "snpStats")
@@ -103,10 +104,9 @@ class ProcessSnpStats(Target):
         self.snpdir = snpdir
 
     def run(self):
-        if self.options.snpdir:
+        if not self.options.snpdir and self.options.launchKtserver: #kill ktserver:
             exp = getExperiment(self.options.expPath)
-            killDbServer(ktserver, exp)
-        #kill ktserver:
+            killDbServer(self.options.ktserver, exp)
         ref2samples = readfiles( self.options.samples, self.snpdir )
         drawSnpPlot(self.options, ref2samples)
         
@@ -238,6 +238,7 @@ def initOptions( parser ):
     parser.add_option( '-r', '--reference', dest='ref', help='Required argument. Reference sequence Name. Default=%default')
     parser.add_option( '-o', '--outdir', dest='outdir', default='.', help='Output directory' ) 
     parser.add_option( '--snpStatsDir', dest='snpdir', help='If specified, assumed that all the snpStats have already been computed and are located in this directory')
+    parser.add_option("--ktserver", dest="launchKtserver", action='store_true', default=False, help='If ktserver has not been launched, this option must be specified')
     #parser.add_option( '--numOutliners', dest='numOutliners', default=1, help='Number of outliners' ) 
     #parser.add_option('--filteredSamples', dest='filteredSamples', help='Hyphen separated list of samples that were filtered out (not to include in the plot)')
     #parser.add_option('--outgroup', dest='outgroup', help='Name of outgroup sample')

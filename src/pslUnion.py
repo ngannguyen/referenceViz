@@ -125,12 +125,14 @@ class Setup(Target):
         
         unionPickleDir = os.path.join(unionDir, "pickle")
         system("mkdir -p %s" %unionPickleDir)
-
+        
+        sampleFamDir = os.path.join(os.getcwd(), "sampleGeneFam")
+        system("mkdir -p %s" %sampleFamDir)
 
         #Self-align and Collapse genes into gene families for each sample:
         for sample in self.samples:
             sampleFadir = os.path.join(self.fadir, sample)
-            self.addChildTarget( SelfAlign(sampleFadir, unionDir, self.options.prot, self.options.identity, self.options.coverage) )
+            self.addChildTarget( SelfAlign(sampleFamDir, sampleFadir, unionDir, self.options.prot, self.options.identity, self.options.coverage) )
         
         #Got: globalTempDir/selfAlign/fa containing the non-redundant gene family sequences
         # and globalTempDir/selfAlign/pickle containing the gene family list
@@ -142,8 +144,9 @@ class SelfAlign(Target):
        Collapse all "homologous" sequences (genes) into families.
        Return fasta file of the non-redundant sequences
     '''
-    def __init__(self, fadir, outdir, prot, identity, coverage):
+    def __init__(self, outfamdir, fadir, outdir, prot, identity, coverage):
         Target.__init__(self)
+        self.outfamdir = outfamdir
         self.fadir = fadir
         self.outdir = outdir
         self.prot = prot
@@ -174,14 +177,15 @@ class SelfAlign(Target):
         system(cmd)
 
         #CollapseDupGenes:
-        self.addChildTarget( CollapseDupGenes(sample, pslfile, self.outdir, seqfiles) )
+        self.addChildTarget( CollapseDupGenes(self.outfamdir, sample, pslfile, self.outdir, seqfiles) )
 
 class CollapseDupGenes(Target):
     '''Read in self-alignment psl file of a sample, cluster homologous genes into gene family
        Return fasta file of the non-redundant sequences and pickle file of the union fams
     '''
-    def __init__(self, sample, infile, outdir, fafiles):
+    def __init__(self, outfamdir, sample, infile, outdir, fafiles):
         Target.__init__(self)
+        self.outfamdir = outfamdir
         self.sample = sample
         self.infile = infile
         self.outdir = outdir
@@ -202,6 +206,10 @@ class CollapseDupGenes(Target):
         unionPickleDir = os.path.join(self.outdir, "pickle")
         pickleFile = os.path.join(unionPickleDir, "%s.pickle" %self.sample)
         pickle.dump( fams, gzip.open(pickleFile, "wb") )
+
+        #Print summary:
+        outfamfile = os.path.join(self.outfamdir, "%s" %self.sample)
+        printUnionList(fams, outfamfile)
 
 class UnionGeneLists(Target):
     '''Divide and conquer, set up jobs to merge 2 gene lists at a time
@@ -224,6 +232,7 @@ class UnionGeneLists(Target):
         if numSam == 1: #done merging, print to output file
             fams = pickle.load(gzip.open(os.path.join(self.pickledir, inPickles[0]), "rb"))
             printUnionList(fams, self.outfile)
+            printUnionList_long(fams, "%s_long" %self.outfile)
             panNcoreGenes(fams, "%s-panNcore" %self.outfile, self.options.samples)
         else: 
             globalTempDir = self.getGlobalTempDir()
@@ -460,6 +469,16 @@ def printUnionList(fams, outfile):
         f.write("%s\t%s\n" %(fam.id, ",".join(fam.genes)))
     f.close()
 
+def printUnionList_long(fams, outfile):
+    f = open(outfile, 'w')
+    f.write("#ID\tSample1;Genes[\tSample2;Genes2\t...]\n")
+    for fam in fams:
+        f.write("%s" %fam.id)
+        for sample, genes in fam.sample2genes.iteritems():
+            f.write("\t%s;%s" %(sample, ",".join(genes)))
+        f.write("\n")
+    f.close()
+
 def mergeFamPair(fam1, fam2, id):
     fam = GeneFamily(id)
     fam.sample2genes = fam1.sample2genes
@@ -569,6 +588,7 @@ def readFasta(file):
                 header2seq[header] = seq
             items = line.split()
             header = items[0].lstrip('>')
+            #header = items[0].lstrip('>').rstrip('|').split('|')[-1] #gi|387605483|ref|YP_006094339.1|
             seq = ''
         else:
             seq += line

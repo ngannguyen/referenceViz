@@ -39,7 +39,7 @@ class Bed():
         if len(items) < 4: 
             raise BedFormatError("Bed format for this program requires 4 fields, line \n%s\n only has %d fields.\n" %(line, len(items)))
         #self.chr = items[0]
-        self.chr = items[0].split('.')[1]
+        self.chr = items[0].split('.')[-1]
         self.start = int(items[1]) #base 0
         self.end = int(items[2]) #exclusive
         self.name = items[3]
@@ -96,6 +96,9 @@ def getPc(count, total):
     return 100.0*count/total
 
 def getMapStatus(beds, totalbases):
+    #status = {'deletion':0, 'rearrangement':False, 'insertion':0, 'folded':False}
+    #Perfect when: del=0 & rearrangement=False & insertion=0 & folded=False
+    #
     #totalbases = total number of bases of the annotated (sample) gene
     #Assuming the the beds are sorted in the order according to the gene coordinate
     #Check to see if the gene mapped perfectly to the reference (no gap, all blocks have the same order)
@@ -519,69 +522,77 @@ def sharedGenes(sample2fam2gene2beds, sample2fam2genes, gene2fam, outbasename, o
     #Draw scatter plot
     drawSharedGenes(xdata, cat2ydata, outbasename, options)
 
-def sameChrom(psls1, psls2):
-    for p1 in psls1:
-        for p2 in psls2:
-            if p1.tName == p2.tName:
-                return True
-    return False
+##==========================================================================
+##==================== GENE CONTIGUITY (OLD) ===============================
+##==========================================================================
+#def sameChrom(psls1, psls2):
+#    for p1 in psls1:
+#        for p2 in psls2:
+#            if p1.tName == p2.tName:
+#                return True
+#    return False
+#
+#def sampleContiguity(gene2psls1, gene2psls2, numsamplings):
+#    correct = 0
+#    for i in xrange(numsamplings):
+#        #randomly choose 2 genes:
+#        genes = random.sample(gene2psls1.keys() , 2)
+#        #keep sampling until find a gene pair that present in gene2psls2
+#        while genes[0] not in gene2psls2 or genes[1] not in gene2psls2 or not sameChrom(gene2psls1[genes[0]], gene2psls1[genes[1]]):
+#            genes = random.sample(gene2psls1.keys(), 2)
+#        
+#        psls11 = gene2psls1[genes[0]]
+#        psls12 = gene2psls1[genes[1]]
+#
+#        psls21 = gene2psls2[genes[0]]
+#        psls22 = gene2psls2[genes[1]]
+#        
+#        reserve = False
+#        for p11 in psls11:
+#            for p12 in psls12:
+#                for p21 in psls21:
+#                    for p22 in psls22:
+#                        if p21.tName == p22.tName and p11.matches == p21.matches and p12.matches == p22.matches: #fully mapped to Cref
+#                            if ((p11.strand[0] == p21.strand[0] and p12.strand[0] == p22.strand[0]) and \
+#                                (p11.tStart - p12.tStart)*(p21.tStart - p22.tStart) > 0 ) or \
+#                               ((p11.strand[0] != p21.strand[0] and p12.strand[0] != p22.strand[0]) and \
+#                                (p11.tStart - p12.tStart)*(p21.tStart - p22.tStart) < 0 ):
+#                               reserve = True
+#                               break
+#                    if reserve:
+#                        break
+#                if reserve:
+#                    break
+#            if reserve:
+#                break
+#        if reserve:
+#            correct += 1
+#        else:
+#            sys.stdout.write("\nContiguity was broken for genes %s and %s:\n" %(genes[0], genes[1]))
+#            for psls in [psls11, psls12, psls21, psls22]:
+#                for p in psls:
+#                    sys.stdout.write("%s\n" %p.desc)
+#
+#    return getPc(correct, numsamplings)
+#
+#def contiguity(sample2psls1, sample2psls2, outbasename, numsamplings):
+#    '''
+#    Contiguity for genes: for each sample:
+#        randomly pick any two genes, check to see if their order and orientation on the sample (sample2psls1) is conserved on Ref (sample2psls2).
+#        repeat "numsamplings" times
+#    '''
+#    outfile = "%s-contiguity" %outbasename
+#    f = open(outfile, 'w')
+#    for sample, gene2psls1 in sample2psls1.iteritems():
+#        correct = sampleContiguity(gene2psls1, sample2psls2[sample], numsamplings) 
+#        f.write("%s\t%.2f\n" %(sample, correct))
+#    f.close()
+##==================== END GENE CONTIGUITY (OLD) ===========================
 
-def sampleContiguity(gene2psls1, gene2psls2, numsamplings):
-    correct = 0
-    for i in xrange(numsamplings):
-        #randomly choose 2 genes:
-        genes = random.sample(gene2psls1.keys() , 2)
-        #keep sampling until find a gene pair that present in gene2psls2
-        while genes[0] not in gene2psls2 or genes[1] not in gene2psls2 or not sameChrom(gene2psls1[genes[0]], gene2psls1[genes[1]]):
-            genes = random.sample(gene2psls1.keys(), 2)
-        
-        psls11 = gene2psls1[genes[0]]
-        psls12 = gene2psls1[genes[1]]
 
-        psls21 = gene2psls2[genes[0]]
-        psls22 = gene2psls2[genes[1]]
-        
-        reserve = False
-        for p11 in psls11:
-            for p12 in psls12:
-                for p21 in psls21:
-                    for p22 in psls22:
-                        if p21.tName == p22.tName and p11.matches == p21.matches and p12.matches == p22.matches: #fully mapped to Cref
-                            if ((p11.strand[0] == p21.strand[0] and p12.strand[0] == p22.strand[0]) and \
-                                (p11.tStart - p12.tStart)*(p21.tStart - p22.tStart) > 0 ) or \
-                               ((p11.strand[0] != p21.strand[0] and p12.strand[0] != p22.strand[0]) and \
-                                (p11.tStart - p12.tStart)*(p21.tStart - p22.tStart) < 0 ):
-                               reserve = True
-                               break
-                    if reserve:
-                        break
-                if reserve:
-                    break
-            if reserve:
-                break
-        if reserve:
-            correct += 1
-        else:
-            sys.stdout.write("\nContiguity was broken for genes %s and %s:\n" %(genes[0], genes[1]))
-            for psls in [psls11, psls12, psls21, psls22]:
-                for p in psls:
-                    sys.stdout.write("%s\n" %p.desc)
-
-    return getPc(correct, numsamplings)
-
-def contiguity(sample2psls1, sample2psls2, outbasename, numsamplings):
-    '''
-    Contiguity for genes: for each sample:
-        randomly pick any two genes, check to see if their order and orientation on the sample (sample2psls1) is conserved on Ref (sample2psls2).
-        repeat "numsamplings" times
-    '''
-    outfile = "%s-contiguity" %outbasename
-    f = open(outfile, 'w')
-    for sample, gene2psls1 in sample2psls1.iteritems():
-        correct = sampleContiguity(gene2psls1, sample2psls2[sample], numsamplings) 
-        f.write("%s\t%.2f\n" %(sample, correct))
-    f.close()
-
+#==========================================================================
+#============================ CORE BASES ==================================
+#==========================================================================
 def getPosByCoverage(chr2pos2cov, cov):
     chr2pos = {}
     for chr, pos2cov in chr2pos2cov.iteritems():
@@ -659,20 +670,86 @@ def getCoreBases(sample2beds, numsam):
             coreBases += 1
 
     #DEBUG
-    sys.stdout.write( "Total positions: %d\n" % len(pos2samples.keys()) )
-    numsam2numpos = {}
-    for pos, indices in pos2samples.iteritems():
-        ns = len(indices)
-        if ns in numsam2numpos:
-            numsam2numpos[ns] += 1
-        else:
-            numsam2numpos[ns] = 1
-    sys.stdout.write("Numsam\tNumPos\n")
-    for ns in sorted(numsam2numpos.keys()):
-        sys.stdout.write( "%d\t%d\n" %(ns, numsam2numpos[ns]) )
+    #sys.stdout.write( "Total positions: %d\n" % len(pos2samples.keys()) )
+    #numsam2numpos = {}
+    #for pos, indices in pos2samples.iteritems():
+    #    ns = len(indices)
+    #    if ns in numsam2numpos:
+    #        numsam2numpos[ns] += 1
+    #    else:
+    #        numsam2numpos[ns] = 1
+    #sys.stdout.write("Numsam\tNumPos\n")
+    #for ns in sorted(numsam2numpos.keys()):
+    #    sys.stdout.write( "%d\t%d\n" %(ns, numsam2numpos[ns]) )
     #END DEBUG
-    
+
     return coreBases
+#======================= END CORE BASES ==================================
+
+#=============================================================
+#====================== OPERON ===============================
+#=============================================================
+def checkOrderAndOrientation(genes, gene2beds):
+    #Thu May  2 16:02:36 PDT 2013: 
+    #!!! HACK: ALL WE CAN DO RIGHT NOW IS CHECK FOR ONLY THE ORDER OF THE GENES, 
+    #          NOT THE ORIENTATION UNTIL halLiftover add in additional fields
+    if len(genes) <= 1:
+        return True
+    
+    reserved = True
+
+    forward = True #the order of the genes has the same direction on Ref. + strand and on the original genome + strand
+    beds1 = gene2beds[ genes[0] ] 
+    beds2 = gene2beds[ genes[1] ]
+    if beds2[-1].end <= beds1[0].start:
+        forward = False
+
+    for i in xrange(0, len(genes) -1):
+        beds1 = gene2beds[ genes[i] ]
+        beds2 = gene2beds[ genes[i+1] ]
+        if (forward and beds1[-1].end > beds2[0].start) or \
+           (not forward and beds2[-1].end > beds1[0].start):
+            return False
+         
+    return reserved
+
+def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
+    '''Check to see if: a/ all genes are reserved on C.Ref and 
+                        b/ their orders and orientations are reserved on C.Ref
+    '''
+    geneReserved = 0 #number of operons that have all genes reserved on C.Ref
+    ooReserved = 0 #number of operons that have the order and orientation of their genes reserved on C.Ref.
+    f = open( "%s-operonStats.txt" %outbasename, "w")
+    f.write("#OperonName\tgeneReserved\tooReserved\n") 
+    for operon in operons: 
+        genes, strand = operons[operon] #list of genes belong to the operon and operon's strand
+        #How many genes of the operon are reserved on C.Ref
+        numPerfect = 0
+        numRearrangement = 0
+        gR = "No"
+        ooR = "No"
+        for gene in genes:
+            status = getMapStatus(gene2beds[gene], gene2len[gene])
+            #status = {'deletion':0, 'rearrangement':False, 'insertion':0, 'folded':False}
+            if status['deletion'] == 0 and status['insertion'] == 0 and not status['rearrangement'] and not status['folded']:
+                numPerfect += 1
+            elif status['rearrangement'] or status['folded']:
+                numRearrangement += 1
+
+        if numPerfect == len(genes):
+            geneReserved += 1
+            gR = "Yes"
+        if numRearrangement == 0:
+            if checkOrderAndOrientation(genes, gene2beds):
+                ooReserved += 1
+                ooR = "Yes"
+        f.write("%s\t%s\t%s\n" %(operon, gR, ooR))
+    
+    #Write summary stats
+    f.write("\n#Total number of operons: %d\n" %len(operons))
+    f.write("#Operons with all genes perfectly mapped: %d\t%.2f\n" %(geneReserved, getPc(geneReserved, len(operons)) ))
+    f.write("#Operons with gene order and orientation reserved: %d\t%.2f\n" %(ooReserved, getPc(ooReserved, len(operons)) ))
+    f.close()
 
 ######## PROCESS INPUT FILES ########
 def convertToAlnum(inputStr):
@@ -848,7 +925,7 @@ def readOperonFile(file):
         items = line.split('\t')
         assert len(items) >= 3
         name = items[0]
-        genes = items[1]
+        genes = items[1].split(',')
         strand = items[2]
         operons[name] = (genes, strand)
 
@@ -939,15 +1016,15 @@ def main():
     sample2genes = readGeneLists(args[1]) #annotated genes
     
     #number of coding bases share by all samples
-    #numsam = len( sample2beds.keys() )
-    #if options.wiggle:
-    #    #coreBases = getCoreBases2(sample2beds, numsam, options.wiggle)
-    #    numsam2bases = getNumsam2codingBases(sample2beds, options.wiggle)
-    #    for numsam in sorted( numsam2bases.keys() ):
-    #        print "%d\t%d" %(numsam, numsam2bases[numsam])
-    #else:
-    #    coreBases = getCoreBases(sample2beds, numsam)
-    #    print "Coding core bases (shared by coding bases of %d samples):\n\t%d" %(numsam, coreBases)
+    numsam = len( sample2beds.keys() )
+    if options.wiggle:
+        #coreBases = getCoreBases2(sample2beds, numsam, options.wiggle)
+        numsam2bases = getNumsam2codingBases(sample2beds, options.wiggle)
+        for numsam in sorted( numsam2bases.keys() ):
+            print "%d\t%d" %(numsam, numsam2bases[numsam])
+    else:
+        coreBases = getCoreBases(sample2beds, numsam)
+        print "Coding core bases (shared by coding bases of %d samples):\n\t%d" %(numsam, coreBases)
     
     #if len(g2status) > 0:
     #    sample2beds = filterAbberantGenes(sample2beds, g2status)
@@ -963,7 +1040,7 @@ def main():
     
     if options.operonFile:
         sample, operons = readOperonFile(options.operonFile)
-        checkOperons(operons, sam2fam2gene2beds[sample], sam2fam2genes[sample], gene2fam, g2status, args[2])
+        checkOperons(operons, sample2beds[sample], sample2genes[sample], g2status, args[2])
 
     #if len(args) == 4:
     #    sample2psls_sample = readPslFiles(args[3])
