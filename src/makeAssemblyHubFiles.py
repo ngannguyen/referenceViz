@@ -5,7 +5,6 @@
 #Generates necessary files to make assembly hub
 #Input: 1/ Output directory (e.g ~nknguyen/public_html/ecoli/hub/testhubs)
 #       2/ hal file of the multiple alignment
-#       3/ (list of samples)
 #       4/ (Optional: directory containing annotated bed files. e.g : genes)
 #Output:
 #   outdir/
@@ -212,7 +211,10 @@ def writeGenomesFile(genomes, halfile, options, outdir):
         lodtxtfile, loddir = getLodFiles(halfile, options, outdir)
     
     localHalfile = os.path.join(outdir, os.path.basename(halfile))
-    system("ln -s %s %s" %(os.path.abspath(halfile), localHalfile))
+    if os.path.abspath(localHalfile) != os.path.abspath(halfile):
+        if os.path.exists(localHalfile):
+            system("rm %s" %localHalfile)
+        system("ln -s %s %s" %(os.path.abspath(halfile), localHalfile))
 
     filename = os.path.join(outdir, "genomes.txt")
     f = open(filename, 'w')

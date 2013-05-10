@@ -124,7 +124,9 @@ def drawSnpPlot(options, ref2samples):
     #Get SNP data w.r.t the reference
     refYdata = [ s.errPerSite for s in samples_ref ]
     refXdata = range(1, len(refYdata) + 1)
-    
+    logger.info( "minRef %d\n" % min(refYdata) )
+    logger.info( "maxRef %d\n" % max(refYdata) )
+
     #Get average of SNP data of each sample w.r.t each of the other samples
     ydataList = []
     for name in sampleNames:
@@ -144,6 +146,9 @@ def drawSnpPlot(options, ref2samples):
     stdYdata = [np.std(data) for data in ydataList]
     offset = 0.25
     xdata = [x + offset for x in refXdata]
+
+    logger.info( "minMean %d\n" % min(meanYdata) )
+    logger.info( "maxMean %d\n" % max(meanYdata) )
 
     #Set up
     options.out = os.path.join(options.outdir, "snpPlot")

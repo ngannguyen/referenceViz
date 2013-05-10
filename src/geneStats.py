@@ -1,5 +1,8 @@
 #!/usr/bin/env python2.6
 
+#EDIT:
+#Mon May  6 12:44:59 PDT 2013
+#
 #Mon Feb 18 15:19:49 PST 2013
 #nknguyen soe ucsc edu
 #Getting statistics of (common) genes mapped to a Reference sequence
@@ -44,43 +47,8 @@ class Bed():
         self.end = int(items[2]) #exclusive
         self.name = items[3]
 
-class Psl():
-    '''Psl record
-    '''
-    def __init__(self, line):
-        items = line.strip().split('\t')
-        if len(items) != 21: 
-            raise PslFormatError("Psl format requires 21 fields, line \n%s\n only has %d fields.\n" %(line, len(items)))
-        self.desc = line
-        self.matches = int(items[0])
-        self.misMatches = int(items[1])
-        self.repMatches = int(items[2])
-        self.nCount = int(items[3])
-        self.qNumInsert = int(items[4])
-        self.qBaseInsert = int(items[5]) #number of bases inserted in query
-        self.tNumInsert = int(items[6]) #number of inserts in target
-        self.tBaseInsert = int(items[7]) #number of bases inserted in target
-        self.strand = items[8] #query strand
-        self.qName = items[9] 
-        self.qSize = int(items[10])
-        self.qStart = int(items[11]) #base 0
-        self.qEnd = int(items[12])
-        self.tName = items[13]
-        self.tSize = int(items[14])
-        self.tStart = int(items[15])
-        self.tEnd = int(items[16])
-        self.blockCount = int(items[17])
-        self.blockSizes = [int(s) for s in items[18].rstrip(',').split(',')]
-        self.qStarts = [int(s) for s in items[19].rstrip(',').split(',')]
-        self.tStarts = [int(s) for s in items[20].rstrip(',').split(',')]
-        if len(self.blockSizes) != self.blockCount or len(self.qStarts) != self.blockCount or len(self.tStarts) != self.blockCount:
-            raise PslFormatError("Psl format requires that the number of items in blockSizes, qStarts, tStarts is equal to blockCount. Line: %s\n" %line)
-
 ######## ERROR CLASSES #######
 class BedFormatError(Exception):
-    pass
-
-class PslFormatError(Exception):
     pass
 
 class InputError(Exception):
@@ -167,6 +135,42 @@ def getMapStatus(beds, totalbases):
 
     return status
 
+def calcOverlap(qstart, qend, tstart, tend):
+    overlap = 0.0
+    if qstart <= tstart and tend <= qend:
+        overlap =  tend - tstart
+    elif tstart <= qstart and qend <= tend:
+        overlap = qend - qstart
+    elif qstart <= tstart and tstart < qend and qend <= tend:
+        overlap = qend - tstart
+    elif tstart <= qstart and qstart < tend and tend <= qend:
+        overlap = tend - qstart
+    
+    l = max(qend - qstart, tend - tstart)
+    assert l > 0
+    return 100.0*overlap/l
+
+def checkAligned( qbeds, tgene2beds, tgenes ):
+    qchr = qbeds[0].chr
+    if len(qbeds) > 1:
+        for i in xrange( 1, len(qbeds) ):
+            assert qbeds[i].chr == qchr
+
+    qstart = qbeds[0].start
+    qend = qbeds[-1].end
+
+    for tgene in tgenes:
+        tbeds = tgene2beds[tgene]
+        tchr = tbeds[0].chr
+        tstart = tbeds[0].start
+        tend = tbeds[-1].end
+        #if tchr == qchr and (tstart - qstart)*(tend - qend) <= 1:
+        #if tchr == qchr and tstart == qstart and tend == qend :
+        if tchr == qchr and tstart < qend and qstart < tend :
+            if calcOverlap(qstart, qend, tstart, tend) >= 90.0:
+                return True
+    return False 
+
 def writeCoverageHeader(f, fields):
     f.write("#Sample\tTotal")
     for field in fields:
@@ -184,9 +188,225 @@ def writeCoverageStats(f, fields, sample, stats, anno):
             f.write("\t%d\t%.2f" %( stats[field], getPc(stats[field], total) ))
     f.write("\n")
 
+def writeAlignerComparisonStats(afh, fields, sample, alignerAgreement, total):
+    #all_alignerAgreement = {'YesP':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
+    #                    'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+    #aFields = sorted( all_alignerAgreement.keys() )
+    #afh.write( "Sample\t%s\tYesYes\tNoYes\n" %( "\t".join(aFields) ) )
+    yy = 0.0
+    ny = 0.0
+    afh.write("%s\t%d" % (sample, total))
+    for k in fields:
+        v = alignerAgreement[k]
+        afh.write("\t%d" %v)
+        if re.match("Yes", k) and k != "YesNo" and k != "YesPAligned":
+            yy += v
+        if re.match("No", k):
+            ny += v
+    afh.write("\t%d\t%d\n" %(yy, ny))
+
 def writeImperfectGeneBeds(f, gene, beds, category, sample):
     for bed in beds:
         f.write("%s\t%d\t%d\t%s\t%s\t%s\n" %(bed.chr, bed.start, bed.end, gene, category, sample))
+
+def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outbasename):
+    '''
+    For each sample:
+        how many annotated genes does the Ref contain (partially and fully)? (mapped)
+        how many annotated genes does the Ref contain (100% coverage) (fully mapped: deletion=0).
+        how many mapped perfectly to Ref (perfect mapped, subset of fully mapped: deletion=0, insertion=0, rearrangement=False, folded=False)
+        Print out the genes with deletion > 0
+                            with insertion > 0
+                            has rearrangement
+                            is folded onto itself (duplications)
+    '''
+    sortedSample2genes = sorted( [(s, fam2genes) for s, fam2genes in sample2fam2genes.iteritems()], key=lambda item:len(item[1]) )
+    sortedSamples = [ item[0] for item in sortedSample2genes ]
+    for sample in sortedSamples:
+        if sample not in sample2fam2gene2beds or sample == refname:
+            sortedSamples.remove(sample)
+
+    #Annotated genes of the reference genome:
+    ref_fam2genes = sample2fam2genes[refname] 
+
+    famOutfile = "%s-coverage-fam.txt" %outbasename
+    geneOutfile = "%s-coverage-gene.txt" %outbasename
+    alignerOutfile = "%s-alignerComparisons.txt" %outbasename
+    imperfectOutfile = "%s-imperfectGenes.txt" %outbasename #print genes that mapped imperfectly to C.Ref
+    
+    ffh = open(famOutfile, 'w')
+    gfh = open(geneOutfile, 'w')
+    afh = open(alignerOutfile, 'w')
+    ifh = open(imperfectOutfile, 'w')
+    
+    fields=['Mapped', 'FullyMapped', 'Deletion', 'Perfect', 'Insertion', 'AnnoInsertion', 'Rearrangement', 'AnnoRearrangement', 'Folded', 'AnnoFolded']
+    writeCoverageHeader(ffh, fields)
+    writeCoverageHeader(gfh, fields)
+    ifh.write("#Chr\tStart\tEnd\tGene\tCategory\tSample\n")
+    
+    famAll = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0} #counts of geneFamilies
+    famAllPc = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0} 
+    geneAll = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0} #counts of genes
+    geneAllPc = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
+    
+    famAllAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+    famAllPcAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+    geneAllAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+    geneAllPcAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+
+    all_alignerAgreement = {'YesP':0.0, 'YesPAligned':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
+                        'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+    aFields = sorted( all_alignerAgreement.keys() )
+    afh.write( "Sample\tTotal\t%s\tYesYes\tNoYes\n" %( "\t".join(aFields) ) )
+
+    for sample in sortedSamples:
+        fam2genes = sample2fam2genes[sample] #annotated (from the gff file)
+        fam2gene2beds = sample2fam2gene2beds[sample] #genes mapped to Ref.
+        famSample = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
+        geneSample = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
+        
+        famAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+        geneAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+        
+        famSample['Total'] = len(fam2genes)
+        famSample['Mapped'] = len(fam2gene2beds)
+
+        alignerAgreement = {'YesP':0.0, 'YesPAligned':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
+                            'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+        #number of genes of "sample" aligned to at least one gene in Ref by BLAT but NOT by cactus:
+        blatonly = 0.0
+        geneSampleTotal = 0.0
+        for fam, genes in fam2genes.iteritems():
+            #if len( fam2genes[fam] ) > 1:#SKIP DUPLICATED GENES
+            #    continue
+            if fam not in fam2gene2beds and fam in ref_fam2genes:
+                blatonly += len(genes)
+            geneSampleTotal += len(genes)
+        alignerAgreement[ 'YesNo' ] = blatonly
+
+        for fam, gene2beds in fam2gene2beds.iteritems():#each family with gene(s) mapped to Ref.
+            assert fam in fam2genes
+            #if len( fam2genes[fam] ) > 1:#SKIP DUPLICATED GENES
+            #    continue
+
+            #total = len(fam2genes[fam])
+            mapped = len(gene2beds.keys())
+            currAnnoCount = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
+            currCount = {'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
+            
+            blat = "No"
+            if fam in ref_fam2genes: #there are genes in Ref aligned with genes of current genome
+                blat = "Yes"
+
+            for gene, beds in gene2beds.iteritems():
+                cactus = 'NP'
+
+                #if gene not in gene2fam or gene2fam[gene] not in fam2genes or gene in gene2status:
+                if gene not in gene2fam or gene2fam[gene] not in fam2genes:
+                    sys.stderr.write("Sample %s, gene %s is not in gene2fam or the geneList.\n" %(sample, gene))
+                    #total -= 1
+                    geneSampleTotal -= 1
+                    mapped -= 1
+                    continue
+                elif gene in gene2status:
+                    annostatus = gene2status[gene]
+                    geneAnno[ annostatus ] += 1
+                    currAnnoCount[ annostatus ] += 1
+                    continue
+                     
+                genelength = fam2genes[fam][gene]
+                status = getMapStatus(beds, genelength)
+                
+                if status['deletion'] == 0:
+                    currCount['FullyMapped'] += 1
+                    if not status['rearrangement'] and not status['folded'] and status['insertion'] == 0:
+                        currCount['Perfect'] += 1
+                        cactus = 'P'
+                else:
+                    currCount['Deletion'] += 1
+                    writeImperfectGeneBeds(ifh, gene, beds, 'Deletion-%d' %status['deletion'], sample)
+                    cactus = 'Del'
+
+                if status['insertion'] > 0:
+                    currCount['Insertion'] += 1
+                    writeImperfectGeneBeds(ifh, gene, beds, 'Insertion-%d' %status['insertion'], sample)
+                    cactus = 'Ins'
+                if status['rearrangement']: 
+                    currCount['Rearrangement'] += 1
+                    writeImperfectGeneBeds(ifh, gene, beds, 'Rearrangement', sample)
+                    cactus = 'Rearrange'
+                if status['folded']: 
+                    currCount['Folded'] += 1
+                    writeImperfectGeneBeds(ifh, gene, beds, 'Folded', sample)
+                    cactus = 'Folded'
+
+                blatcactus = "%s%s" % (blat, cactus)
+                alignerAgreement[ blatcactus ] += 1.0
+                if blatcactus == "YesP" :
+                    if checkAligned(beds, ref_gene2beds, ref_fam2genes[fam]):
+                        alignerAgreement["YesPAligned"] += 1.0
+            
+            #geneSample['Total'] += total
+            geneSample['Mapped'] += mapped
+
+            for category in currCount.keys():
+                count = currCount[category]
+                geneSample[category] += count
+                if category in ['FullyMapped', 'Perfect']:
+                    if count >= 1:
+                        famSample[category] += 1
+                elif count == mapped: #if all the mapped genes of the family have deletion/insertion/rearrangement/isFolded, then the family belongs to that category
+                    famSample[category] += 1
+            
+            for k, v in currAnnoCount.iteritems():
+                if v == len(gene2beds):
+                    famAnno[k] += 1
+
+        #Print coverage stats for the sample:
+        geneSample['Total'] = geneSampleTotal
+        writeCoverageStats(ffh, fields, sample, famSample, famAnno)
+        writeCoverageStats(gfh, fields, sample, geneSample, geneAnno)
+        writeAlignerComparisonStats(afh, aFields, sample, alignerAgreement, geneSample['Total'])
+
+        #Cumulative stats
+        for k, v in famSample.iteritems():
+            famAll[k] += v
+            geneAll[k] += geneSample[k]
+            if k != 'Total':
+                famAllPc[k] += getPc(v, famSample['Total'])
+                geneAllPc[k] += getPc(geneSample[k], geneSample['Total'])
+
+        for k, v in famAnno.iteritems():
+            famAllAnno[k] += v
+            geneAllAnno[k] += geneAnno[k]
+            famAllPcAnno[k] += getPc(v, famSample['Total'])
+            geneAllPcAnno[k] += getPc(geneAnno[k], geneSample['Total'])
+    
+        for k, v in alignerAgreement.iteritems():
+            all_alignerAgreement[k] += v
+
+    #Average
+    n = len(sortedSamples)
+    if n > 0:
+        ffh.write("Average\t%.2f" %( famAll['Total']/n ))
+        gfh.write("Average\t%.2f" %( geneAll['Total']/n ))
+        for field in fields:
+            if re.match("Anno", field):
+                field = field.lstrip("Anno")
+                ffh.write( "\t%.2f\t%.2f" %(famAllAnno[field]/n, famAllPcAnno[field]/n) )
+                gfh.write( "\t%.2f\t%.2f" %(geneAllAnno[field]/n, geneAllPcAnno[field]/n) )
+            else:
+                ffh.write( "\t%.2f\t%.2f" %(famAll[field]/n, famAllPc[field]/n) )
+                gfh.write( "\t%.2f\t%.2f" %(geneAll[field]/n, geneAllPc[field]/n) )
+        ffh.write("\n")
+        gfh.write("\n")
+
+        #afh.write("Average")
+
+    ffh.close()
+    gfh.close()
+    ifh.close()
+    afh.close()
 
 def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outbasename):
     '''
@@ -201,6 +421,9 @@ def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outb
     '''
     sortedSample2genes = sorted( [(s, fam2genes) for s, fam2genes in sample2fam2genes.iteritems()], key=lambda item:len(item[1]) )
     sortedSamples = [ item[0] for item in sortedSample2genes ]
+    for sample in sortedSamples:
+        if sample not in sample2fam2gene2beds:
+            sortedSamples.remove(sample)
 
     famOutfile = "%s-coverage-fam.txt" %outbasename
     geneOutfile = "%s-coverage-gene.txt" %outbasename
@@ -226,7 +449,7 @@ def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outb
 
     for sample in sortedSamples:
         fam2genes = sample2fam2genes[sample] #annotated (from the gff file)
-        fam2gene2beds = sample2fam2gene2beds[sample] #genes mapped to C.Ref.
+        fam2gene2beds = sample2fam2gene2beds[sample] #genes mapped to Ref.
         famSample = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
         geneSample = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
         
@@ -235,10 +458,14 @@ def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outb
         
         famSample['Total'] = len(fam2genes)
         famSample['Mapped'] = len(fam2gene2beds)
+        
+        geneSampleTotal = 0.0
+        for fam, genes in fam2genes.iteritems():
+            geneSampleTotal += len(genes)
 
-        for fam, gene2beds in fam2gene2beds.iteritems():#each family with gene(s) mapped to C.Ref.
+        for fam, gene2beds in fam2gene2beds.iteritems():#each family with gene(s) mapped to Ref.
             assert fam in fam2genes
-            total = len(fam2genes[fam])
+            #total = len(fam2genes[fam])
             mapped = len(gene2beds.keys())
             currAnnoCount = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
             currCount = {'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0}
@@ -247,7 +474,8 @@ def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outb
                 #if gene not in gene2fam or gene2fam[gene] not in fam2genes or gene in gene2status:
                 if gene not in gene2fam or gene2fam[gene] not in fam2genes:
                     sys.stderr.write("Sample %s, gene %s is not in gene2fam or the geneList.\n" %(sample, gene))
-                    total -= 1
+                    #total -= 1
+                    geneSampleTotal -= 1
                     mapped -= 1
                     continue
                 elif gene in gene2status:
@@ -277,7 +505,7 @@ def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outb
                     currCount['Folded'] += 1
                     writeImperfectGeneBeds(ifh, gene, beds, 'Folded', sample)
             
-            geneSample['Total'] += total
+            #geneSample['Total'] += total
             geneSample['Mapped'] += mapped
 
             for category in currCount.keys():
@@ -294,6 +522,7 @@ def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outb
                     famAnno[k] += 1
 
         #Print coverage stats for the sample:
+        geneSample['Total'] = geneSampleTotal
         writeCoverageStats(ffh, fields, sample, famSample, famAnno)
         writeCoverageStats(gfh, fields, sample, geneSample, geneAnno)
         
@@ -339,61 +568,6 @@ def getNumsam2numgene(gene2sams):
             numsam2numgene[numsam] = 1
     return numsam2numgene
 
-def checkAlign_psl(gene2perfectPsls):
-    numsam2numgene = {}
-    for gene, psls in gene2perfectPsls.iteritems():
-        allAlign = True
-        start = psls[0].tStart
-        end = psls[0].tEnd
-        size = psls[0].qSize
-
-        for psl in psls:
-            if (psl.qSize == size and (psl.tStart != start or psl.tEnd != end)) or \
-               (psl.qSize < size and (psl.tStart < start or psl.tEnd > end)) or\
-               (psl.qSize > size and (psl.tStart > start or psl.tEnd < end)):
-                allAlign = False
-                break
-                
-                
-        if allAlign:
-            numsam = len(psls)
-            if numsam in numsam2numgene:
-                numsam2numgene[numsam] += 1
-            else:
-                numsam2numgene[numsam] = 1
-        #else:
-            #sys.stdout.write("\nPerfect but not allAligned: gene %s\n" %gene)
-            #for p in psls:
-            #    sys.stdout.write("%s\n" %p.desc)
-    return numsam2numgene
-
-def checkAlign(id2perfectBedLists):
-    numsam2numgene = {}
-    for fam, bedLists in id2perfectBedLists.iteritems():
-        allAlign = True
-        start = bedLists[0][0].start
-        end = bedLists[0][-1].end
-        size = sum([bed.end - bed.start  for bed in bedLists[0]])
-
-        for beds in bedLists:
-            currsize = sum([bed.end - bed.start for bed in beds])
-            currstart = beds[0].start
-            currend = beds[-1].end
-            if (currsize == size and (currstart != start or currend != end)) or \
-               (currsize < size and (currstart < start or currend > end)) or \
-               (currsize > size and (currstart > start or currend < end)):
-               allAlign = False
-               break
-        if allAlign:
-            numsam = len(bedLists)
-            if numsam in numsam2numgene:
-                numsam2numgene[numsam] += 1
-            else:
-                numsam2numgene[numsam] = 1
-        #else:
-        #    sys.stdout.write("\nPerfect but not allAligned: gene family with id %s\n" %fam)
-    return numsam2numgene
-
 def drawSharedGenes(xdata, cat2ydata, outbasename, options):
     options.out = outbasename
     fig, pdf = libplot.initImage(11.2, 10.0, options)
@@ -418,7 +592,6 @@ def drawSharedGenes(xdata, cat2ydata, outbasename, options):
     legend.__drawFrame = False
 
     libplot.writeImage( fig, pdf, options)
-    
 
 def sharedGenes(sample2fam2gene2beds, sample2fam2genes, gene2fam, outbasename, options):
     '''
@@ -522,74 +695,6 @@ def sharedGenes(sample2fam2gene2beds, sample2fam2genes, gene2fam, outbasename, o
     #Draw scatter plot
     drawSharedGenes(xdata, cat2ydata, outbasename, options)
 
-##==========================================================================
-##==================== GENE CONTIGUITY (OLD) ===============================
-##==========================================================================
-#def sameChrom(psls1, psls2):
-#    for p1 in psls1:
-#        for p2 in psls2:
-#            if p1.tName == p2.tName:
-#                return True
-#    return False
-#
-#def sampleContiguity(gene2psls1, gene2psls2, numsamplings):
-#    correct = 0
-#    for i in xrange(numsamplings):
-#        #randomly choose 2 genes:
-#        genes = random.sample(gene2psls1.keys() , 2)
-#        #keep sampling until find a gene pair that present in gene2psls2
-#        while genes[0] not in gene2psls2 or genes[1] not in gene2psls2 or not sameChrom(gene2psls1[genes[0]], gene2psls1[genes[1]]):
-#            genes = random.sample(gene2psls1.keys(), 2)
-#        
-#        psls11 = gene2psls1[genes[0]]
-#        psls12 = gene2psls1[genes[1]]
-#
-#        psls21 = gene2psls2[genes[0]]
-#        psls22 = gene2psls2[genes[1]]
-#        
-#        reserve = False
-#        for p11 in psls11:
-#            for p12 in psls12:
-#                for p21 in psls21:
-#                    for p22 in psls22:
-#                        if p21.tName == p22.tName and p11.matches == p21.matches and p12.matches == p22.matches: #fully mapped to Cref
-#                            if ((p11.strand[0] == p21.strand[0] and p12.strand[0] == p22.strand[0]) and \
-#                                (p11.tStart - p12.tStart)*(p21.tStart - p22.tStart) > 0 ) or \
-#                               ((p11.strand[0] != p21.strand[0] and p12.strand[0] != p22.strand[0]) and \
-#                                (p11.tStart - p12.tStart)*(p21.tStart - p22.tStart) < 0 ):
-#                               reserve = True
-#                               break
-#                    if reserve:
-#                        break
-#                if reserve:
-#                    break
-#            if reserve:
-#                break
-#        if reserve:
-#            correct += 1
-#        else:
-#            sys.stdout.write("\nContiguity was broken for genes %s and %s:\n" %(genes[0], genes[1]))
-#            for psls in [psls11, psls12, psls21, psls22]:
-#                for p in psls:
-#                    sys.stdout.write("%s\n" %p.desc)
-#
-#    return getPc(correct, numsamplings)
-#
-#def contiguity(sample2psls1, sample2psls2, outbasename, numsamplings):
-#    '''
-#    Contiguity for genes: for each sample:
-#        randomly pick any two genes, check to see if their order and orientation on the sample (sample2psls1) is conserved on Ref (sample2psls2).
-#        repeat "numsamplings" times
-#    '''
-#    outfile = "%s-contiguity" %outbasename
-#    f = open(outfile, 'w')
-#    for sample, gene2psls1 in sample2psls1.iteritems():
-#        correct = sampleContiguity(gene2psls1, sample2psls2[sample], numsamplings) 
-#        f.write("%s\t%.2f\n" %(sample, correct))
-#    f.close()
-##==================== END GENE CONTIGUITY (OLD) ===========================
-
-
 #==========================================================================
 #============================ CORE BASES ==================================
 #==========================================================================
@@ -669,26 +774,23 @@ def getCoreBases(sample2beds, numsam):
         if len(indices) == numsam:
             coreBases += 1
 
-    #DEBUG
-    #sys.stdout.write( "Total positions: %d\n" % len(pos2samples.keys()) )
-    #numsam2numpos = {}
-    #for pos, indices in pos2samples.iteritems():
-    #    ns = len(indices)
-    #    if ns in numsam2numpos:
-    #        numsam2numpos[ns] += 1
-    #    else:
-    #        numsam2numpos[ns] = 1
-    #sys.stdout.write("Numsam\tNumPos\n")
-    #for ns in sorted(numsam2numpos.keys()):
-    #    sys.stdout.write( "%d\t%d\n" %(ns, numsam2numpos[ns]) )
-    #END DEBUG
-
     return coreBases
 #======================= END CORE BASES ==================================
 
 #=============================================================
 #====================== OPERON ===============================
 #=============================================================
+def writeOperon(f2, operon, genes, gene2beds, numPerfect, numRearrangement, numLost):
+    f2.write("#%s\t%s\t%d\t%d\t%d\t%d\n" %(operon, ",".join(genes), len(genes), numPerfect, numRearrangement, numLost))
+    for gene in genes:
+        if gene not in gene2beds:
+            f2.write("#%s\tLost\n" %gene)
+            continue
+        beds = gene2beds[gene]
+        for bed in beds:
+            f2.write("%s\t%d\t%d\t%s;%s\n" %(bed.chr, bed.start, bed.end, gene, operon))
+    return
+
 def checkOrderAndOrientation(genes, gene2beds):
     #Thu May  2 16:02:36 PDT 2013: 
     #!!! HACK: ALL WE CAN DO RIGHT NOW IS CHECK FOR ONLY THE ORDER OF THE GENES, 
@@ -701,14 +803,14 @@ def checkOrderAndOrientation(genes, gene2beds):
     forward = True #the order of the genes has the same direction on Ref. + strand and on the original genome + strand
     beds1 = gene2beds[ genes[0] ] 
     beds2 = gene2beds[ genes[1] ]
-    if beds2[-1].end <= beds1[0].start:
+    if beds2[0].start <= beds1[0].start:
         forward = False
 
     for i in xrange(0, len(genes) -1):
         beds1 = gene2beds[ genes[i] ]
         beds2 = gene2beds[ genes[i+1] ]
-        if (forward and beds1[-1].end > beds2[0].start) or \
-           (not forward and beds2[-1].end > beds1[0].start):
+        if (forward and beds1[0].start > beds2[0].start) or \
+           (not forward and beds2[0].start > beds1[0].start):
             return False
          
     return reserved
@@ -721,14 +823,22 @@ def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
     ooReserved = 0 #number of operons that have the order and orientation of their genes reserved on C.Ref.
     f = open( "%s-operonStats.txt" %outbasename, "w")
     f.write("#OperonName\tgeneReserved\tooReserved\n") 
+    f2 = open("%s-operons-broken.txt" %outbasename, "w")
+
     for operon in operons: 
+        #print operon
         genes, strand = operons[operon] #list of genes belong to the operon and operon's strand
         #How many genes of the operon are reserved on C.Ref
         numPerfect = 0
         numRearrangement = 0
+        numLost = 0
         gR = "No"
         ooR = "No"
         for gene in genes:
+            assert gene in gene2len
+            if gene not in gene2beds:
+                numLost += 1
+                continue
             status = getMapStatus(gene2beds[gene], gene2len[gene])
             #status = {'deletion':0, 'rearrangement':False, 'insertion':0, 'folded':False}
             if status['deletion'] == 0 and status['insertion'] == 0 and not status['rearrangement'] and not status['folded']:
@@ -739,17 +849,22 @@ def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
         if numPerfect == len(genes):
             geneReserved += 1
             gR = "Yes"
-        if numRearrangement == 0:
+        if numLost == 0 and numRearrangement == 0:
             if checkOrderAndOrientation(genes, gene2beds):
                 ooReserved += 1
                 ooR = "Yes"
         f.write("%s\t%s\t%s\n" %(operon, gR, ooR))
+
+        #if gR == "No" or ooR == "No":
+        if ooR == "No":
+            writeOperon(f2, operon, genes, gene2beds, numPerfect, numRearrangement, numLost)
     
     #Write summary stats
     f.write("\n#Total number of operons: %d\n" %len(operons))
     f.write("#Operons with all genes perfectly mapped: %d\t%.2f\n" %(geneReserved, getPc(geneReserved, len(operons)) ))
     f.write("#Operons with gene order and orientation reserved: %d\t%.2f\n" %(ooReserved, getPc(ooReserved, len(operons)) ))
     f.close()
+    f2.close()
 
 ######## PROCESS INPUT FILES ########
 def convertToAlnum(inputStr):
@@ -774,59 +889,30 @@ def readBedFile(file):
     f.close()
     return beds
 
+def readSampleBedFiles( samplepath ):
+    if os.path.isdir(samplepath):
+        files = [os.path.join(samplepath, file) for file in os.listdir(samplepath)]
+    else:
+        files = [samplepath]
+    
+    name2beds = {}
+    for file in files:
+        beds = readBedFile(file)
+        for name, bedlist in beds.iteritems():
+            if name in name2beds:
+                name2beds[name].extend(bedlist)
+            else:
+                name2beds[name] = bedlist
+    return name2beds
+
 def readBedFiles(indir):
     sample2beds = {}
     for sample in os.listdir(indir):
         samplepath = os.path.join(indir, sample)
-        if os.path.isdir(samplepath):
-            files = [os.path.join(samplepath, file) for file in os.listdir(samplepath)]
-        else:
-            files = [samplepath]
-        sample2beds[sample] = {}
-        for file in files:
-            beds = readBedFile(file)
-            for name, bedlist in beds.iteritems():
-                if name in sample2beds[sample]:
-                    sample2beds[sample][name].extend(bedlist)
-                else:
-                    sample2beds[sample][name] = bedlist
+        if not os.path.isdir(samplepath):
+            sample = sample.split('.')[0]
+        sample2beds[sample] = readSampleBedFiles( samplepath )
     return sample2beds
-
-def readPslFile(file):
-    psls = {} #key = qName, val = Psl
-    f = open(file, 'r')
-    for line in f:
-        line = line.strip()
-        if len(line) == 0 or line[0] == "#":
-            continue
-        psl = Psl(line)
-        if psl.qName not in psls:
-            psls[psl.qName] = [psl]
-        else: #only take the longest transcripts
-            currqSize = psls[psl.qName][-1].qSize
-            if psl.qSize < currqSize:
-                continue
-            elif psl.qSize == currqSize:
-                psls[psl.qName].append(psl)
-            else:
-                psls[psl.qName] = [psl]
-    f.close()
-    return psls
-
-def readPslFiles(indir):
-    sample2psls = {}
-    for sample in os.listdir(indir):
-        if sample.split('.')[-1] != 'psl':
-            continue
-        filename = os.path.join(indir, sample)
-        psls = readPslFile(filename)
-        sample = sample.rstrip('psl').rstrip('.')
-        
-        if re.search('_', sample): #HACK
-            sample = convertToAlnum(sample) #HACK
-
-        sample2psls[sample] = psls
-    return sample2psls
 
 def readGeneList(file):
     genes = {} #key = gene, value = geneLenth
@@ -857,6 +943,50 @@ def readGeneLists(indir):
         sample = convertToAlnum(sample) 
         sample2genes[sample] = genes
     return sample2genes
+
+def readGeneClusters2(file):
+    gene2fam = {}
+    fam2sample2genes = {} 
+
+    f = open(file, 'r')
+    for line in f:
+        line = line.strip()
+        if len(line) == 0 or line[0] == "#":
+            continue
+        items = line.split('\t')
+        if len(items) < 2:
+            continue
+        famid = items[0]
+        sample2genes = {}
+        for item in items[1:]:
+            fields = item.split(';')
+            sample = fields[0]
+            genenames = fields[1].split(',')
+            genes = []
+            for g in genenames:
+                #gi|386604534|ref|YP_006110834.1|
+                geneitems = g.split('|')
+                if len(geneitems) >= 4:
+                    g = geneitems[3]
+                genes.append(g)
+            #for g in genes:
+            #    gene2fam[g] = famid
+            sample2genes[sample] = genes
+
+        #Filter out family with duplicated genes:
+        hasDups = False
+        for s, genes in sample2genes.iteritems():
+            if len(genes) > 1:
+                hasDups = True
+                break
+        if not hasDups:
+            fam2sample2genes[famid] = sample2genes
+            for s, genes in sample2genes.iteritems():
+                for g in genes:
+                    gene2fam[g] = famid
+    f.close()
+    
+    return gene2fam
 
 def readGeneClusters(file):
     gene2fam = {}
@@ -918,7 +1048,7 @@ def readOperonFile(file):
     #
     operons = {} #key = operon name, val = list of genenames
     f = open(file, 'r')
-    species = f.readline().strip()
+    species = f.readline().strip().lstrip("#")
     for line in f:
         if len(line) == 0 or line[0] == '#':
             continue
@@ -962,7 +1092,7 @@ def getSample2fam2genes(sample2genes, gene2fam):
         for gene, length in genes.iteritems():
             if gene not in gene2fam:
                 #raise ValueError("gene %s is not found in the geneClusters file.\n" %gene)
-                sys.stderr.write("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
+                #sys.stderr.write("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
                 continue
             fam = gene2fam[gene]
             if fam not in sam2fam2genes[sample]:
@@ -978,7 +1108,7 @@ def getSample2fam2gene2beds(sample2beds, gene2fam):
         for gene, beds in gene2beds.iteritems():
             if gene not in gene2fam:
                 #raise ValueError("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
-                sys.stderr.write("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
+                #sys.stderr.write("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
                 continue
             fam = gene2fam[gene]
             if fam not in fam2gene2beds:
@@ -996,7 +1126,8 @@ def main():
     usage = "%prog <bed directory> <gene list directory> <output basename> <geneClusters> [<gene2sample psl directory>]"
     #geneClusters has the format: <clusterID>\t<comma,separated,list,of,genes,within,this,cluster>
     parser = OptionParser(usage = usage)
-    parser.add_option('-n', '--numsamplings', dest='numsamplings', type='int', default=100000, help='Number of samplings to performed for the contiguity stats. Default=%default')
+    parser.add_option('-r', '--ref', dest='ref', help='reference genome')
+    parser.add_option('--refgenes', dest='refbed', help='Bed formatted file containing gene info of the reference genome.')
     parser.add_option('-s', '--geneStatus', dest='gstatus', help='Specify the list of annotated genes that were folded/rearranged')
     parser.add_option('-w', '--wiggle', dest='wiggle', help='Wiggle file showing the coverage of each position')
     parser.add_option('-o', '--operons', dest='operonFile', help='File containing operon set. Default=%default' )
@@ -1012,39 +1143,35 @@ def main():
     if options.gstatus:
         g2status = readGeneStatus(options.gstatus)
     
-    sample2beds = readBedFiles(args[0]) #genes mapped to CRef
+    sample2beds = readBedFiles(args[0]) #genes mapped to Ref
+    sys.stderr.write("Done reading input bed files\n")
     sample2genes = readGeneLists(args[1]) #annotated genes
-    
+    sys.stderr.write("Done reading input gene lists\n")
+
     #number of coding bases share by all samples
     numsam = len( sample2beds.keys() )
     if options.wiggle:
-        #coreBases = getCoreBases2(sample2beds, numsam, options.wiggle)
         numsam2bases = getNumsam2codingBases(sample2beds, options.wiggle)
         for numsam in sorted( numsam2bases.keys() ):
             print "%d\t%d" %(numsam, numsam2bases[numsam])
-    else:
-        coreBases = getCoreBases(sample2beds, numsam)
-        print "Coding core bases (shared by coding bases of %d samples):\n\t%d" %(numsam, coreBases)
     
-    #if len(g2status) > 0:
-    #    sample2beds = filterAbberantGenes(sample2beds, g2status)
-    #    sample2genes = filterAbberantGenes(sample2genes, g2status)
+    ##cluster genes into gene families:
+    ##gene2fam = readGeneClusters2(args[3])
+    #gene2fam = readGeneClusters(args[3])
+    #sam2fam2gene2beds = getSample2fam2gene2beds(sample2beds, gene2fam) 
+    #sam2fam2genes = getSample2fam2genes(sample2genes,gene2fam)
+    #if options.ref:
+    #    assert options.refbed and  os.path.exists( options.refbed )
+    #    ref_gene2beds = readSampleBedFiles( options.refbed )
+    #    coverage2(options.ref, ref_gene2beds, sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
+    #else:
+    #    coverage(sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
     
-    #cluster genes into gene families:
-    gene2fam = readGeneClusters(args[3])
-    sam2fam2gene2beds = getSample2fam2gene2beds(sample2beds, gene2fam) 
-    sam2fam2genes = getSample2fam2genes(sample2genes,gene2fam)
-    
-    coverage(sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
-    #sharedGenes(sam2fam2gene2beds, sam2fam2genes, gene2fam, args[2], options) 
+    ##sharedGenes(sam2fam2gene2beds, sam2fam2genes, gene2fam, args[2], options) 
     
     if options.operonFile:
         sample, operons = readOperonFile(options.operonFile)
         checkOperons(operons, sample2beds[sample], sample2genes[sample], g2status, args[2])
-
-    #if len(args) == 4:
-    #    sample2psls_sample = readPslFiles(args[3])
-    #    contiguity(sample2psls_sample, sample2psls, args[2], options.numsamplings)
 
 if __name__ == "__main__":
     from referenceViz.src.geneStats import *
