@@ -37,6 +37,9 @@ def getGenomeSequencesFromHal(halfile, genome):
     f.close()
     system("rm %s" %statsfile)
 
+    if len(seq2len) == 0:
+        sys.stderr.write("Genome %s has zero sequence\n" %genome)
+
     return seq2len
 
 def getChromSizes(halfile, genomes, outdir):
