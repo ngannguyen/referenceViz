@@ -1119,12 +1119,11 @@ def getSample2fam2gene2beds(sample2beds, gene2fam):
     return sam2fam2gene2beds
 
 def main():
-    #bed directory: bed files, each containing genes of each sample mapped to C.Ref.
-    #gene list directory: genelist files, each containing genes of each sample. Format: each line contains a gene/protein name
-    #geneClusters: file clusters genes into family. Format: <GeneFamilyId>\t<Comma,sep,list,of,genes>
+    #bed directory: bed files, each containing genes of each sample mapped to Ref.
+    #gene list directory: genelist files, each containing genes of each sample. Format: each line contains a <gene/protein name>\t<gene/protein sequence length>
+    #geneClusters: file clusters genes into family. Format: <GeneFamilyId>\t<Comma,sep,list,of,genes,within,this,cluster>
     
     usage = "%prog <bed directory> <gene list directory> <output basename> <geneClusters> [<gene2sample psl directory>]"
-    #geneClusters has the format: <clusterID>\t<comma,separated,list,of,genes,within,this,cluster>
     parser = OptionParser(usage = usage)
     parser.add_option('-r', '--ref', dest='ref', help='reference genome')
     parser.add_option('--refgenes', dest='refbed', help='Bed formatted file containing gene info of the reference genome.')
