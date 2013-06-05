@@ -63,7 +63,6 @@ class Bed():
         else:
             return cmp(self.chromEnd, other.chromEnd)
 
-############### ERROR CLASSES #################
 class Region():
     '''A simple obj represents a region with chr, start, end
     '''

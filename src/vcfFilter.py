@@ -71,7 +71,21 @@ def collapseVariants(variants):
         #    variant.id += ",%s" %variants[i].id
     return variant
 
+def getRSlist(id):
+    snps = []
+    if re.search("dbsnp", id):
+        items = id.split('-')
+        for item in items:
+            if re.search("dbsnp", item):
+                items2 = item.split('_')
+                if len(items2) >= 2 and re.search("rs", items2[1]):
+                    snps.append(items2[1])
+    else:
+        snps = [id]
+    return snps
+
 def readVcf(f):
+    visitedVariants = {}
     variants = []
     prev = None
     currVars = [] #list of current redundant variants
@@ -80,6 +94,20 @@ def readVcf(f):
         if len(line) == 0 or line[0] == '#':
             continue
         v = Variant(line)
+
+        #Ignore snps rs***** that have already beed added to the variants list
+        if re.search("rs", v.id):
+            ids = getRSlist(v.id)
+            visited = False
+            for id in ids:
+                if id in visitedVariants: 
+                    visitedVariants[id] += 1
+                    visited = True
+                else:
+                    visitedVariants[id] = 1
+            if visited:
+                continue
+
         if not prev or prev == v:
             currVars.append( v )
         else:
@@ -95,6 +123,7 @@ def readVcf(f):
         collapsedVariant.setId( str(len(variants)) )
         variants.append(collapsedVariant)
         #variants.append( collapseVariants(currVars) )
+    sys.stderr.write( "Total visited variants: %d; redundant: %d\n" %(len(visitedVariants), sum(visitedVariants.values())) )
     return variants
 
 def writeVcf(f, variants):

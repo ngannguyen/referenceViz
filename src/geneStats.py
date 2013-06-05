@@ -1,32 +1,42 @@
 #!/usr/bin/env python2.6
 
 #EDIT:
+#Tue May 14 13:42:02 PDT 2013
 #Mon May  6 12:44:59 PDT 2013
-#
 #Mon Feb 18 15:19:49 PST 2013
 #nknguyen soe ucsc edu
 #Getting statistics of (common) genes mapped to a Reference sequence
 #
 #Input:
 #   1/ Directory containing bed files, each file contains genes 
-#      of each sample mapped to the Reference
+#      of each sample mapped (lift-overed) to the Reference
 #   2/ Directory containing genelist files, each file contains 
 #      the annotated genelist of each sample
-#   3/ File contains operon sets
+#   3/ geneClusters: file showing groups of homologous genes. Format: <groupID>\t<gene1,gene2,...>
+#   
+#   Optional:
+#   1/ File contains operon sets
+#   2/ refGeneBeds: bed file of the annotated genes of the Reference 
 #
 #Output:
-#   1/ For each sample:
-#       how many annotated genes does the Ref contain
-#       how many mapped perfectly to Ref (no indels)
-#   2/ Draw: gene to number of samples for (annotated) and (mapped
-#            perfectly to Ref)
-#   3/ For the core genes: check to see if they align together
-#   4/ Operons: 
+#   Analysis 1: how genes of each sample mapped to the Reference
+#       For each sample:
+#           how many annotated genes does the Reference contain
+#           how many mapped perfectly to Ref (no indels)
 #
-#   5/ (Contiguity for genes): for each sample:
+#   Analysis 2: how are the alignments used to lift over genes of each sample to the Reference
+#               compared with the annotated gene sets (gene set of each sample and gene set of the Reference)
+#
+#   (Others:
+#   3/ Draw: gene to number of samples for (annotated) and (mapped
+#            perfectly to Ref)
+#   4/ For the core genes: check to see if they align together
+#   5/ Operons: 
+#
+#   6/ (Contiguity for genes): for each sample:
 #      randomly pick any two genes, check to see if their order and
 #      orientation is conserved on Ref.
-#
+#   )
 
 import os, sys, re, time, random
 from optparse import OptionParser
@@ -46,6 +56,40 @@ class Bed():
         self.start = int(items[1]) #base 0
         self.end = int(items[2]) #exclusive
         self.name = items[3]
+
+    def __cmp__(self, other):
+        if self.chr != other.chr:
+            return cmp(self.chr, other.chr)
+        elif self.start != other.start:
+            return cmp(self.start, other.start)
+        else:
+            return cmp(self.end, other.end)
+
+######## ERROR CLASSES #######
+class BedFormatError(Exception):
+    pass
+
+class InputError(Exception):
+    pass
+
+class InputFormatError(Exception):
+    pass
+
+class Region():
+    '''A simple obj represents a region with chr, start, end
+    '''
+    def __init__(self, chr, start, end):
+        self.chr = chr
+        self.start = start
+        self.end = end
+
+    def __cmp__(self, other):
+        if self.chr != other.chr:
+            return cmp(self.chr, other.chr)
+        elif self.start != other.start:
+            return cmp(self.start, other.start)
+        else:
+            return cmp(self.end, other.end)
 
 ######## ERROR CLASSES #######
 class BedFormatError(Exception):
@@ -135,41 +179,106 @@ def getMapStatus(beds, totalbases):
 
     return status
 
-def calcOverlap(qstart, qend, tstart, tend):
+def getNonOverlapRegions(beds):
+    chr2regs = {}
+    beds = sorted(beds)
+    #sys.stderr.write("getNonOverlapRegions... Done sorting input beds\n")
+
+    for bed in beds:
+        reg = Region(bed.chr, bed.start, bed.end)
+        if reg.chr not in chr2regs: #new chromosome
+            chr2regs[reg.chr] = [reg]
+        else:
+            hasoverlap = False
+            for r in chr2regs[reg.chr]:
+                if reg.start < r.end and r.start < reg.end: #overlap
+                    r.start = min( r.start, reg.start )
+                    r.end = max( r.end, reg.end )
+                    hasoverlap = True
+                    break
+            if not hasoverlap: #non-overlap
+                chr2regs[reg.chr].append(reg)
+    return chr2regs
+
+def calcOverlap(regs1, regs2):
+    assert len(regs1) > 0 and len(regs2) > 0
+    i1 = 0
+    i2 = 0
     overlap = 0.0
-    if qstart <= tstart and tend <= qend:
-        overlap =  tend - tstart
-    elif tstart <= qstart and qend <= tend:
-        overlap = qend - qstart
-    elif qstart <= tstart and tstart < qend and qend <= tend:
-        overlap = qend - tstart
-    elif tstart <= qstart and qstart < tend and tend <= qend:
-        overlap = tend - qstart
-    
-    l = max(qend - qstart, tend - tstart)
-    assert l > 0
-    return 100.0*overlap/l
+    while i1 < len(regs1) and i2 < len(regs2):
+        curr1 = regs1[i1]
+        curr2 = regs2[i2]
+        if curr1.start < curr2.end and curr2.start < curr1.end: #overlap
+            overlap += min(curr1.end, curr2.end) - max(curr1.start, curr2.start)
+            if curr1.end < curr2.end:
+                i1 += 1
+            else: #curr2.end < curr1.end:
+                i2 += 1
+        else: #non overlap
+            if curr1.end <= curr2.start:
+                i1 += 1
+            else:
+                i2 += 1
+    return overlap
+
+def compareAlignments( beds1, beds2, coverage ):
+    #compare two alignments, beds have only chr, start & end info
+    #sys.stderr.write("comparing alignments. beds1 %s, %d. beds2 %s, %d\n" %(beds1[0].name, len(beds1), beds2[0].name, len(beds2)))
+    chr2regs1 = getNonOverlapRegions(beds1) 
+    chr2regs2 = getNonOverlapRegions(beds2) 
+    #DEBUG
+    #l1 = 0
+    #for c, rs in chr2regs1.iteritems():
+    #    l1 += len(rs)
+    #l2 = 0
+    #for c, rs in chr2regs2.iteritems():
+    #    l2 += len(rs)
+    #sys.stderr.write("nonOverlapRegs1: %d; regs2: %d\n" %(l1, l2))
+    #END DEBUG
+
+    total1 = 0.0
+    total2 = 0.0
+    overlap = 0.0
+    for chr, regs1 in chr2regs1.iteritems():
+        #total1 += sum([reg.end - reg.start for reg in regs1])
+        for r1 in regs1:
+            total1 += r1.end - r1.start
+
+        if chr not in chr2regs2:
+            continue
+        
+        regs2 = chr2regs2[chr]
+        #total2 += sum([reg.end - reg.start for reg in regs2])
+        for r2 in regs2:
+            total2 += r2.end - r2.start
+        
+        overlap += calcOverlap(regs1, regs2) 
+   
+    pc1 = getPc(overlap, total1)
+    pc2 = getPc(overlap, total2)
+    if pc1 == 100.0 and pc2 == 100.0: 
+        return 1 #perfect aligned
+    elif pc1 >= coverage and pc2 >= coverage:
+        return 2 #imperfect aligned
+    else:
+        return 3 #other
 
 def checkAligned( qbeds, tgene2beds, tgenes ):
-    qchr = qbeds[0].chr
-    if len(qbeds) > 1:
-        for i in xrange( 1, len(qbeds) ):
-            assert qbeds[i].chr == qchr
+    #qbeds:
+    minCoverage = 90.0
+    #categories = {1: 'totalAligned', 2: 'partiallyAligned', 3:'other'}
+    categories = {1: 'A', 2: 'IA', 3:'O'}
 
-    qstart = qbeds[0].start
-    qend = qbeds[-1].end
-
+    cats = []
     for tgene in tgenes:
+        if tgene not in tgene2beds:
+            sys.stderr.write("tgene %s is not in tgene2beds\n" %tgene)
+            cats.append(3)
+            continue
         tbeds = tgene2beds[tgene]
-        tchr = tbeds[0].chr
-        tstart = tbeds[0].start
-        tend = tbeds[-1].end
-        #if tchr == qchr and (tstart - qstart)*(tend - qend) <= 1:
-        #if tchr == qchr and tstart == qstart and tend == qend :
-        if tchr == qchr and tstart < qend and qstart < tend :
-            if calcOverlap(qstart, qend, tstart, tend) >= 90.0:
-                return True
-    return False 
+        cats.append( compareAlignments(qbeds, tbeds, minCoverage) )
+
+    return categories[ min(cats) ]
 
 def writeCoverageHeader(f, fields):
     f.write("#Sample\tTotal")
@@ -217,9 +326,10 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
         how many mapped perfectly to Ref (perfect mapped, subset of fully mapped: deletion=0, insertion=0, rearrangement=False, folded=False)
         Print out the genes with deletion > 0
                             with insertion > 0
-                            has rearrangement
-                            is folded onto itself (duplications)
+                            that have rearrangement
+                            that are folded onto themselves (duplications)
     '''
+    #sort samples by the number of gene families
     sortedSample2genes = sorted( [(s, fam2genes) for s, fam2genes in sample2fam2genes.iteritems()], key=lambda item:len(item[1]) )
     sortedSamples = [ item[0] for item in sortedSample2genes ]
     for sample in sortedSamples:
@@ -254,8 +364,12 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
     geneAllAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
     geneAllPcAnno = {'Insertion':0.0, 'Folded':0.0, 'Rearrangement':0.0}
 
-    all_alignerAgreement = {'YesP':0.0, 'YesPAligned':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
-                        'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+    #all_alignerAgreement = {'YesP':0.0, 'YesPAligned':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
+    #                    'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+    all_alignerAgreement = {'YesPA':0.0, 'YesPIA':0.0, 'YesPO':0.0, \
+                            'YesInsIA':0.0, 'YesInsO':0.0, 'YesDelIA':0.0, 'YesDelO':0.0, \
+                            'YesFoldedIA':0.0, 'YesFoldedO':0.0, 'YesRearrangeIA':0.0, 'YesRearrangeO':0.0, \
+                            'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 }#ref_fam2genes, A: 100% aligned, IA: >= XX% aligned, O: others
     aFields = sorted( all_alignerAgreement.keys() )
     afh.write( "Sample\tTotal\t%s\tYesYes\tNoYes\n" %( "\t".join(aFields) ) )
 
@@ -271,8 +385,13 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
         famSample['Total'] = len(fam2genes)
         famSample['Mapped'] = len(fam2gene2beds)
 
-        alignerAgreement = {'YesP':0.0, 'YesPAligned':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
-                            'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+        #alignerAgreement = {'YesP':0.0, 'YesPAligned':0.0, 'YesIns':0.0, 'YesDel':0.0, 'YesFolded': 0.0, 'YesRearrange':0.0, \
+        #                    'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 } #ref_fam2genes
+        #ref_fam2genes, A: 100% aligned, IA: >= XX% aligned, O: others
+        alignerAgreement = {'YesPA':0.0, 'YesPIA':0.0, 'YesPO':0.0, \
+                            'YesInsIA':0.0, 'YesInsO':0.0, 'YesDelIA':0.0, 'YesDelO':0.0, \
+                            'YesFoldedIA':0.0, 'YesFoldedO':0.0, 'YesRearrangeIA':0.0, 'YesRearrangeO':0.0, \
+                            'NoP':0.0, 'NoIns':0.0, 'NoDel':0.0, 'NoFolded':0.0, 'NoRearrange':0.0, 'YesNo':0.0 }
         #number of genes of "sample" aligned to at least one gene in Ref by BLAT but NOT by cactus:
         blatonly = 0.0
         geneSampleTotal = 0.0
@@ -298,7 +417,7 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
             if fam in ref_fam2genes: #there are genes in Ref aligned with genes of current genome
                 blat = "Yes"
 
-            for gene, beds in gene2beds.iteritems():
+            for gene, beds in gene2beds.iteritems():#each gene in the family
                 cactus = 'NP'
 
                 #if gene not in gene2fam or gene2fam[gene] not in fam2genes or gene in gene2status:
@@ -341,10 +460,15 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
                     cactus = 'Folded'
 
                 blatcactus = "%s%s" % (blat, cactus)
+                #alignerAgreement[ blatcactus ] += 1.0
+                #if blatcactus == "YesP" :
+                if blat == "Yes": #(cactus != "No")
+                    alignedStatus = checkAligned(beds, ref_gene2beds, ref_fam2genes[fam]) #A: 100% aligned, IA (imperfect aligned): >= XX% aligned, O: others
+                    if alignedStatus == 'A' and cactus != 'P':#HACK
+                        blatcactus += 'IA'
+                    else:
+                        blatcactus += alignedStatus
                 alignerAgreement[ blatcactus ] += 1.0
-                if blatcactus == "YesP" :
-                    if checkAligned(beds, ref_gene2beds, ref_fam2genes[fam]):
-                        alignerAgreement["YesPAligned"] += 1.0
             
             #geneSample['Total'] += total
             geneSample['Mapped'] += mapped
@@ -1138,13 +1262,15 @@ def main():
     if len(args) < 4:
         parser.error("Required at least 4 inputs\n")
 
+    #check for genes that were misannotated (folded genes/ genes with indels)
     g2status = {}
     if options.gstatus:
         g2status = readGeneStatus(options.gstatus)
-    
-    sample2beds = readBedFiles(args[0]) #genes mapped to Ref
+   
+    #read input files
+    sample2beds = readBedFiles(args[0]) #genes of each sample mapped to the Reference 
     sys.stderr.write("Done reading input bed files\n")
-    sample2genes = readGeneLists(args[1]) #annotated genes
+    sample2genes = readGeneLists(args[1]) #list of annotated genes of each sample
     sys.stderr.write("Done reading input gene lists\n")
 
     #number of coding bases share by all samples
@@ -1154,17 +1280,19 @@ def main():
         for numsam in sorted( numsam2bases.keys() ):
             print "%d\t%d" %(numsam, numsam2bases[numsam])
     
-    ##cluster genes into gene families:
-    ##gene2fam = readGeneClusters2(args[3])
-    #gene2fam = readGeneClusters(args[3])
-    #sam2fam2gene2beds = getSample2fam2gene2beds(sample2beds, gene2fam) 
-    #sam2fam2genes = getSample2fam2genes(sample2genes,gene2fam)
-    #if options.ref:
-    #    assert options.refbed and  os.path.exists( options.refbed )
-    #    ref_gene2beds = readSampleBedFiles( options.refbed )
-    #    coverage2(options.ref, ref_gene2beds, sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
-    #else:
-    #    coverage(sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
+    #cluster genes into gene families:
+    #gene2fam = readGeneClusters2(args[3])  #ignore gene families with paralogous genes
+    gene2fam = readGeneClusters(args[3])
+    sam2fam2gene2beds = getSample2fam2gene2beds(sample2beds, gene2fam) 
+    sam2fam2genes = getSample2fam2genes(sample2genes,gene2fam)
+
+    if options.ref:
+        assert options.refbed and  os.path.exists( options.refbed )
+        ref_gene2beds = readSampleBedFiles( options.refbed )
+        sys.stderr.write("Done reading reference annotated genes\n")
+        coverage2(options.ref, ref_gene2beds, sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
+    else:
+        coverage(sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
     
     ##sharedGenes(sam2fam2gene2beds, sam2fam2genes, gene2fam, args[2], options) 
     

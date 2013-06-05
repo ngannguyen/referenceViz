@@ -52,18 +52,23 @@ class PgSnp():
                 return 1
 
 class SnpSite():
-    def __init__(self, line, sampleName, referenceName):
+    def __init__(self, line, sampleName, referenceName, longnames):
         items = line.strip().split()
         self.name = items[0]
         self.start = int( items[1] )
         self.allele = items[2].lower()
         self.ref = items[3]
+        if longnames and self.ref in longnames:
+            self.ref = longnames[self.ref]
+
         self.refstart = int( items[4] ) 
         refitems = self.ref.split('.')
         if len(refitems) <=2:
-            sys.stderr.write('Reference sequence must provide chromosome info: i.e: species.chr\n')
-            sys.exit(1)
-        self.refchrom = refitems[1]
+            self.refchrom = self.ref
+            #sys.stderr.write('Reference sequence must provide chromosome info: i.e: species.chr\n')
+            #sys.exit(1)
+        else:
+            self.refchrom = refitems[1]
 
         #Convert coordinate if necessary:
         if len(refitems) == 6:
@@ -80,8 +85,10 @@ class SnpSite():
         self.referenceName = referenceName
     
     def __cmp__(self, other):
-        chr = int( self.refchrom.lstrip('chr') )
-        otherchr = int( other.refchrom.lstrip('chr') )
+        #chr = int( self.refchrom.lstrip('chr') )
+        #otherchr = int( other.refchrom.lstrip('chr') )
+        chr = self.refchrom.lstrip('chr')
+        otherchr = other.refchrom.lstrip('chr')
 
         if chr < otherchr:
             return -1
@@ -156,8 +163,10 @@ class Snp():
         #self.alleleFreqs = [ float(f) for f in items[23].rstrip(',').split(',') ]
 
     def __cmp__(self, other):
-        chr = int( self.chrom.lstrip('chr') )
-        otherchr = int( other.chrom.lstrip('chr') )
+        #chr = int( self.chrom.lstrip('chr') )
+        #otherchr = int( other.chrom.lstrip('chr') )
+        chr = self.chrom.lstrip('chr')
+        otherchr = other.chrom.lstrip('chr')
 
         if chr < otherchr:
             return -1
@@ -253,6 +262,18 @@ def readFilter(file):
     f.close()
     return regions
 
+def readSeqNameFile(file):
+    names = {}
+    f = open(file, 'r')
+    for line in f:
+        items = line.strip().split("\t")
+        if len(items) < 2:
+            continue
+        assert items[1] not in names
+        names[items[1]] = items[0]
+    f.close()
+    return names
+
 def readDbSnps(file, start, end, filter):
     f = open(file, 'r')
     snps = []
@@ -345,7 +366,7 @@ def readPgSnp(file, start, end, filter):
     f.close()
     return sample2snps
 
-def readRefSnps(file, filteredSamples, start, end, filter):
+def readRefSnps(file, filteredSamples, start, end, filter, longnames):
     xmltree = ET.parse( file )
     root = xmltree.getroot()
     snps = {}
@@ -364,7 +385,7 @@ def readRefSnps(file, filteredSamples, start, end, filter):
             sites = sample.text.strip().split('\n')
         for site in sites:#each snp detected by cactus ref, check to see if there is one in dbsnp
             if site != '':
-               snp = SnpSite(site, name, ref)
+               snp = SnpSite(site, name, ref, longnames)
                if isInRange(snp.refstart, start, end) and not isInFilter(snp.refstart, filter):
                    snps[name].append( snp )
     return snps, samples
@@ -485,9 +506,10 @@ def initOptions( parser ):
     parser.add_option('--pgSnp', dest='pgSnp', help="pgSnp file (snps found in each sample)")
     parser.add_option('--pileupSnp', dest='puSnp', help="snp calls using samtools mpileup to reads alignment file (bam), in same format with pgSnp file")
     parser.add_option('-s', '--startCoord', dest='startCoord', type = 'int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no upstream limit.')
-    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps upstream of this Start coordinate (base 0) will be ignored. If not specified, it is assumed that there is no downstream limit.')
+    parser.add_option('-e', '--endCoord', dest='endCoord', type='int', help='Snps downstream of this End coordinate () will be ignored. If not specified, it is assumed that there is no downstream limit.')
     parser.add_option('-f', '--filter', dest='filter', help='File contain regions to ignore in the stats (format:chr\\tchromStart\\tchromEnd). Will ignore all snps lie within this region. Default=no filtering')
     parser.add_option('--falsePos', dest='fp', help='File to write FalsePositive Calls. Default = "snpsFP.txt"')
+    parser.add_option('--seqLongNames', dest='seqNameFile', help='File that mapped the short sequence names to longer names. Default=%default. (This option is added because the browser display requires that the sequence names are alphanumeric while the longer names with sample.chr.start.len.... provides mapping info)')
 
 def checkOptions( args, options, parser ):
     if len(args) < 2:
@@ -514,6 +536,9 @@ def checkOptions( args, options, parser ):
         options.filter = []
     if options.fp == None:
         options.fp = "snpsFP.txt"
+    options.seqLongNames = {}
+    if options.seqNameFile != None:
+        options.seqLongNames = readSeqNameFile(options.seqNameFile)
 
 def main():
     usage = ('Usage: %prog [options] snpStats_*.xml snp134dump.txt')
@@ -529,7 +554,7 @@ def main():
         sample2snps = readPgSnp(options.pgSnp, options.startCoord, options.endCoord, options.filter)
     if options.puSnp:
         sample2snpsPileup = readPgSnp(options.puSnp, options.startCoord, options.endCoord, options.filter)
-    refsnps,samples = readRefSnps( args[0], options.filteredSamples, options.startCoord, options.endCoord, options.filter )
+    refsnps,samples = readRefSnps( args[0], options.filteredSamples, options.startCoord, options.endCoord, options.filter, options.seqLongNames )
     getStats( dbsnps, refsnps, samples, sample2snps, sample2snpsPileup, options.fp )
 
     #Delete dbfile, refdbfile ...

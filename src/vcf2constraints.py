@@ -131,9 +131,9 @@ class Variant():
             raise ValueError("Wrong vcf format. Expected 8 fields, only see %d fields. Line: %s\n" %(len(items), line))
         self.chr = items[0].strip('chr')
         self.pos = int(items[1]) -1 #convert to base 0
-        self.id = items[2] #id should have the format: spc.chr
+        #self.id = items[2] #id should have the format: spc.chr
         #if self.id == '.':
-        #    self.id = "%s-%d" %(self.chr, self.pos)
+        self.id = "%s-%d" %(self.chr, self.pos)
         #self.id = self.id.replace(".", "_")
         self.ref = items[3]
         #self.alt = items[4]
@@ -222,6 +222,7 @@ def filterRedundantFasta(infile, outfile):
     outfh.close()
 
 def getVariantSnippet(variant, seqs):
+    extendLen = 100
     refstart, refend, header = getSeq( variant.chr, variant.pos, seqs )
     if not header:
         raise ValueError("Could not find fasta sequence for variant %s, %d.\n" %(variant.chr, variant.pos))
@@ -229,13 +230,15 @@ def getVariantSnippet(variant, seqs):
     
     #Left snippet:
     leftend = variant.pos
-    leftstart = max( [0, refstart, leftend - 50] )
+    #leftstart = max( [0, refstart, leftend - 50] )
+    leftstart = max( [0, refstart, leftend - extendLen] )
     
     if leftend <= leftstart: #overlap with previous variant - ignore the left snippet.
         raise RuntimeError("leftend <= leftstart: %d <= %d. Variant %s, %d. Ref: %s.\n" %(leftend, leftstart, variant.chr, variant.pos, header) )
     else:
         leftheader, leftseq = extractSeq(leftstart, leftend, header, seq)
-        if leftseq.islower() and leftstart == leftend - 50: #the whole sequence is repetitive 
+        #if leftseq.islower() and leftstart == leftend - 50: #the whole sequence is repetitive 
+        if leftseq.islower() and leftstart == leftend - extendLen: #the whole sequence is repetitive 
             leftstart = max( [0, refstart, leftend - 200] )
             leftheader, leftseq = extractSeq( leftstart, leftend, header, seq )
         #remove Ns:
@@ -246,13 +249,15 @@ def getVariantSnippet(variant, seqs):
          
     #Right snippet:
     rightstart = variant.pos + len(variant.ref)
-    rightend = min( [refend, rightstart + 50] )
+    #rightend = min( [refend, rightstart + 50] )
+    rightend = min( [refend, rightstart + extendLen] )
     
     if rightend <= rightstart: #overlap with next variant - ignore the right snippet
         raise RuntimeError("rightend <= rightstart: %d <= %d. Variant %s, %d. Ref: %s.\n" %(rightend, rightstart, variant.chr, variant.pos, header))
     else:
         rightheader, rightseq = extractSeq( rightstart, rightend, header, seq)
-        if rightseq.islower() and rightend == rightstart + 50:
+        #if rightseq.islower() and rightend == rightstart + 50:
+        if rightseq.islower() and rightend == rightstart + extendLen:
             rightend = min( [refend, rightstart + 200] )
             rightheader, rightseq = extractSeq( rightstart, rightend, header, seq)
         #remove Ns:
