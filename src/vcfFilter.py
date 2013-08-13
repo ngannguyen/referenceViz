@@ -85,18 +85,24 @@ def getRSlist(id):
     return snps
 
 def readVcf(f):
-    visitedVariants = {}
     variants = []
-    prev = None
-    currVars = [] #list of current redundant variants
     for line in f:
         line = line.strip()
         if len(line) == 0 or line[0] == '#':
             continue
         v = Variant(line)
+        variants.append(v)
+    variants.sort()
+    return variants
 
+def filterRedundantVcf(rVariants, checkDbsnp):
+    visitedVariants = {}
+    variants = []
+    prev = None
+    currVars = [] #list of current redundant variants
+    for v in rVariants:
         #Ignore snps rs***** that have already beed added to the variants list
-        if re.search("rs", v.id):
+        if checkDbsnp and re.search("rs", v.id):
             ids = getRSlist(v.id)
             visited = False
             for id in ids:
@@ -131,9 +137,13 @@ def writeVcf(f, variants):
         f.write("%s\n" %v.getStr())
 
 #====== main =====
+#checkDbsnpName = False
+#if len(sys.argv) > 1 and sys.argv[1] == 'id':
+#    print sys.argv
+#    checkDbsnpName = True #values = ['id']
 variants = readVcf(sys.stdin)
+variants = filterRedundantVcf(variants, True)
 writeVcf(sys.stdout, variants)
-
 
 
 

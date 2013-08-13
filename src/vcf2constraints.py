@@ -223,6 +223,7 @@ def filterRedundantFasta(infile, outfile):
 
 def getVariantSnippet(variant, seqs):
     extendLen = 100
+    repExtendLen = 200
     refstart, refend, header = getSeq( variant.chr, variant.pos, seqs )
     if not header:
         raise ValueError("Could not find fasta sequence for variant %s, %d.\n" %(variant.chr, variant.pos))
@@ -230,16 +231,14 @@ def getVariantSnippet(variant, seqs):
     
     #Left snippet:
     leftend = variant.pos
-    #leftstart = max( [0, refstart, leftend - 50] )
     leftstart = max( [0, refstart, leftend - extendLen] )
     
     if leftend <= leftstart: #overlap with previous variant - ignore the left snippet.
         raise RuntimeError("leftend <= leftstart: %d <= %d. Variant %s, %d. Ref: %s.\n" %(leftend, leftstart, variant.chr, variant.pos, header) )
     else:
         leftheader, leftseq = extractSeq(leftstart, leftend, header, seq)
-        #if leftseq.islower() and leftstart == leftend - 50: #the whole sequence is repetitive 
         if leftseq.islower() and leftstart == leftend - extendLen: #the whole sequence is repetitive 
-            leftstart = max( [0, refstart, leftend - 200] )
+            leftstart = max( [0, refstart, leftend - repExtendLen] )
             leftheader, leftseq = extractSeq( leftstart, leftend, header, seq )
         #remove Ns:
         noNleftseq = leftseq.split('N')[-1].split('n')[-1]
@@ -249,16 +248,14 @@ def getVariantSnippet(variant, seqs):
          
     #Right snippet:
     rightstart = variant.pos + len(variant.ref)
-    #rightend = min( [refend, rightstart + 50] )
     rightend = min( [refend, rightstart + extendLen] )
     
     if rightend <= rightstart: #overlap with next variant - ignore the right snippet
         raise RuntimeError("rightend <= rightstart: %d <= %d. Variant %s, %d. Ref: %s.\n" %(rightend, rightstart, variant.chr, variant.pos, header))
     else:
         rightheader, rightseq = extractSeq( rightstart, rightend, header, seq)
-        #if rightseq.islower() and rightend == rightstart + 50:
         if rightseq.islower() and rightend == rightstart + extendLen:
-            rightend = min( [refend, rightstart + 200] )
+            rightend = min( [refend, rightstart + repExtendLen] )
             rightheader, rightseq = extractSeq( rightstart, rightend, header, seq)
         #remove Ns:
         noNrightseq = rightseq.split('N')[-1].split('n')[0]

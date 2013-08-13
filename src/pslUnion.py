@@ -658,6 +658,7 @@ def main():
     parser.add_option('-p', '--prot', dest='prot', action='store_true', default=False, help='Specified if input sequences are protein sequences. Default is for nucleotide sequences.')
     parser.add_option('-i', '--identity', dest='identity', type='float', default=90.0, help='Minimum alignment identity (%). Default=%default %')
     parser.add_option('-c', '--coverage', dest='coverage', type='float', default=90.0, help='Minimum alignment length coverage (%). Default=%default %')
+    parser.add_option('--keepAlignment', dest='keepAlignment', action='store_true', default=False, help='If specified, will save the gene alignments. Default=%default')
     Stack.addJobTreeOptions(parser)
     options, args = parser.parse_args()
 

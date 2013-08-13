@@ -16,7 +16,8 @@ def convertToAlnum(inputStr):
     items = re.split("[^a-zA-Z0-9]", inputStr)
     items = [item.capitalize() for item in items] 
     newStr = "".join(items)
-    assert newStr.isalnum()
+    if not newStr.isalnum():
+        print newStr
     return newStr
 
 def renameFaFile(filename, outdir, newseqname, old2new):

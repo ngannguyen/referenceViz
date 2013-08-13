@@ -40,8 +40,8 @@
 
 import os, sys, re, time, random
 from optparse import OptionParser
-import libPlotting as libplot
-import matplotlib.pyplot as pyplot
+#import libPlotting as libplot
+#import matplotlib.pyplot as pyplot
 
 ######################### Obj classes #####################
 class Bed():
@@ -50,12 +50,53 @@ class Bed():
     def __init__(self, line):
         items = line.strip().split('\t')
         if len(items) < 4: 
-            raise BedFormatError("Bed format for this program requires 4 fields, line \n%s\n only has %d fields.\n" %(line, len(items)))
+            raise BedFormatError("Bed format for this program requires a minimum of 4 fields, line \n%s\n only has %d fields.\n" %(line, len(items)))
         #self.chr = items[0]
         self.chr = items[0].split('.')[-1]
-        self.start = int(items[1]) #base 0
-        self.end = int(items[2]) #exclusive
+        try:
+            self.start = int(items[1]) #base 0
+            self.end = int(items[2]) #exclusive
+        except ValueError:
+            print "BED %s has wrong format\n" %line
         self.name = items[3]
+
+        if len(items) >= 12:
+            self.score = items[4]
+            self.strand = items[5]
+            assert self.strand == '-' or self.strand == '+'
+            self.thickStart = int(items[6]) #base 0
+            #assert self.thickStart >= self.start
+            self.thickEnd = int(items[7])
+            #assert self.thickEnd <= self.end
+            self.itemRgb = items[8]
+            self.blockCount = int(items[9])
+            self.blockSizes = [int(i) for i in items[10].rstrip(',').split(',')]
+            self.blockStarts = [int(i) for i in items[11].rstrip(',').split(',')]
+            assert len(self.blockSizes) == self.blockCount
+            assert len(self.blockStarts) == self.blockCount
+            
+            #if blockStarts[0] != 0, convert start & end so that blockStarts[0] = 0
+            if len(self.blockStarts) > 0 and (self.blockStarts[0] != 0 or self.end != self.start + self.blockStarts[-1] + self.blockSizes[-1]):
+                offset = self.blockStarts[0]
+                self.start += offset
+                self.blockStarts = [s - offset for s in self.blockStarts]
+                self.end = self.start + self.blockStarts[-1] + self.blockSizes[-1]
+
+        else:
+            self.score = '.'
+            self.strand = '.'
+            self.thickStart = self.start
+            self.thickEnd = self.end
+            self.itemRgb = '.'
+            if len(items) >= 10:
+                self.blockCount = int(items[9])
+            else:
+                self.blockCount = 1
+            self.blockSizes = [self.end - self.start]
+            self.blockStarts = [0]
+        
+        self.originalStrand = '.'
+        self.originalBeds = []
 
     def __cmp__(self, other):
         if self.chr != other.chr:
@@ -64,6 +105,17 @@ class Bed():
             return cmp(self.start, other.start)
         else:
             return cmp(self.end, other.end)
+
+    def setOriginalBeds(self, originalBeds):
+        self.originalBeds = originalBeds
+
+    def getStr(self):
+        blockSizes = ','.join([str(s) for s in self.blockSizes])
+        blockStarts = ','.join([str(s) for s in self.blockStarts])
+        return "%s\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%s\t%d\t%s\t%s" \
+               %(self.chr, self.start, self.end, self.name, self.score,\
+                 self.strand, self.thickStart, self.thickEnd, self.itemRgb,\
+                 self.blockCount, blockSizes, blockStarts)
 
 ######## ERROR CLASSES #######
 class BedFormatError(Exception):
@@ -125,9 +177,11 @@ def getMapStatus(beds, totalbases):
     #Perfect when: del=False & rearrangement=False & insertion=False & folded=False
     status = {'deletion':0, 'rearrangement':False, 'insertion':0, 'folded':False}
     #Check the total number of bases mapped to Ref.
-    mapped = sum( [bed.end - bed.start for bed in beds] )
+    mapped = sum( [sum(bed.blockSizes) for bed in beds] )
     if totalbases < mapped:
         sys.stderr.write("Gene: %s, Total base: %d, mapped: %d\n" %(beds[0].name, totalbases, mapped))
+        for b in beds:
+            sys.stderr.write("%s\n" %b.getStr())
         status['rearrangment'] = True
         status['Folded'] = True
     #assert totalbases >= mapped     #HACK! this should be un-commented
@@ -135,49 +189,161 @@ def getMapStatus(beds, totalbases):
     if mapped < totalbases: 
         status['deletion'] = totalbases - mapped #number of bases that did not map to Ref.
     if len(beds) == 1:
+        if status['deletion'] == 0:
+            gap = checkInsertions(beds[0].originalBeds, beds, True)
+            status['insertion'] = gap
         return status
 
-    #Check if all the gene portions mapped to the same Ref. sequence (chromosome)
+    #Check if all the gene portions mapped to the same Ref. sequence (chromosome) on the same strand
     for bed in beds:
-        if bed.chr != beds[0].chr:
+        if bed.chr != beds[0].chr or bed.strand != beds[0].strand:
             status['rearrangement'] = True
             return status
 
-    #all pieces mapped to same Ref. chromosome
+    #all pieces mapped to same Ref. chromosome and same strand
     #Now check the ordering of the mapping:
-    currBed = beds[0]
-    currDirection = ''
-    for i in xrange(1, len(beds)):
-        bed = beds[i]
-        if bed.start > currBed.start:
-            direction = '+'
-        else:
-            direction = '-'
-        if currDirection != '' and direction != currDirection: #change block ordering
-            status['rearrangement'] = True
-            return status
-        currDirection = direction
-        currBed = bed
-
-    #Ordering is OK, check for overlapping
     forward = True
     if beds[0].start > beds[1].start:
         forward = False
-    currBed = beds[0]
-    totalgap = 0
+    
+    #if has original strand info, see if the strands before and after mapping are consistent
+    prevBed = beds[0]
+    if prevBed.originalStrand in ['+', '-']: 
+        if prevBed.originalStrand == prevBed.strand:
+            forward = True
+        else:
+            forward = False
+
+    #totalgap = prevBed.end - prevBed.start - sum(prevBed.blockSizes) #initialize with number of inserted bases in the first bed
     for i in xrange(1, len(beds)):
         bed = beds[i]
         if forward:
-            gap = bed.start - currBed.end
+            gap = bed.start - prevBed.end
         else:
-            gap = currBed.start - bed.end
-        if gap < 0: #overlap
-            status['folded'] = True
+            gap = prevBed.start - bed.end
+        if gap < 0:
+            status['rearrangement'] = True
             return status
-        totalgap += gap
-    status['insertion'] = totalgap
-
+        #gap += bed.end - bed.start - sum(bed.blockSizes)
+        #totalgap += gap
+        prevBed = bed
+    #Not rearrangement
+    if status['deletion'] == 0:
+        gap = checkInsertions(beds[0].originalBeds, beds, forward)
+        status['insertion'] = gap
     return status
+
+def getBlocks(beds, forward):
+    starts = []
+    ends = []
+    if forward:
+        indices = range(len(beds))
+    else:
+        indices = range(len(beds) - 1, -1, -1)
+    
+    geneStart = beds[indices[0]].start
+    for i in indices:
+        bed = beds[i]
+        offset = bed.start - geneStart
+        assert offset >= 0
+        for j in xrange(bed.blockCount):
+            start = bed.blockStarts[j] + offset
+            end = start + bed.blockSizes[j]
+            
+            #DEBUG
+            #if beds[0].name == "HLA-A":
+            #    print "Start %d, end %d" %(start, end)
+            #DEBUG
+
+            if len(starts) >= 1 and ends[-1] == start:
+                ends[-1] = end
+            else:
+                starts.append(start)
+                ends.append(end)
+    if not forward:
+        starts.reverse()
+        ends.reverse()
+    return starts, ends
+
+def checkInsertions(beds0, beds, forward):
+    #If any block in beds0 does not map to an un-gapped block in beds,
+    #report number of inserted bases
+    assert len(beds0) > 0 and len(beds) > 0
+    gap = 0
+    
+    starts0, ends0 = getBlocks(beds0, True) #original always forward
+    starts, ends = getBlocks(beds, forward)
+    
+    #DEBUG
+    #if beds[0].name == "HLA-A":
+    #    print "\n%s" %beds[0].name
+    #    print forward
+    #    print starts0
+    #    print ends0
+    #    print starts
+    #    print ends
+    #DEBUG
+    
+    visitedBases = 0 #number of visited bases in beds0 
+    currPos = 0 #number of visited bases in beds
+    currIndex = 0
+    for i in xrange( len(starts0) ): #each block in beds0
+        size0 = ends0[i] - starts0[i]
+        visitedBases += size0
+        
+
+        #DEBUG
+        #if beds[0].name == "HLA-A":
+        #    print "block %d, start: %d, size: %d, visitedBases: %d, currPos %d, currIndex: %d, gap %d" %(i, starts0[i], size0, visitedBases, currPos, currIndex, gap)
+        #DEBUG
+
+        while currIndex < len(starts) and currPos < visitedBases:
+            start = starts[currIndex] 
+            end = ends[currIndex]
+            size = end - start
+            
+            #DEBUG
+            #if beds[0].name == "HLA-A":
+            #    print "currIndex %d, start %d, end %d, size %d, currPos %d, gap %d" %(currIndex, start, end, size, currPos, gap)
+            #DEBUG
+            
+            if size > size0: #block in beds0 is ungapped in beds
+                currPos += size0
+                starts[currIndex] += size0 
+                
+                #DEBUG
+                #if beds[0].name == "HLA-A":
+                #    print "size > size0, updated start to %d and currPos to %d" %(starts[currIndex], currPos)
+                #DEBUG
+
+            elif size == size0:
+                currPos += size0
+                currIndex += 1
+                
+                #DEBUG
+                #if beds[0].name == "HLA-A":
+                #    print "size = size0, updated currIndex to %d and currPos to %d" %(currIndex, currPos)
+                #DEBUG
+
+            else: #there's insertion, need to move to next block in beds
+                currIndex += 1
+                size0 -= size
+                currPos += size
+                if currIndex < len(starts):
+                    gap += starts[currIndex] - end
+                
+                #DEBUG
+                #if beds[0].name == "HLA-A":
+                #    print "size < size0, updated currIndex to %d, currPos to %d and gap to %d" %(currIndex, currPos, gap)
+                #DEBUG
+
+    
+    #DEBUG
+    #if beds[0].name == "HLA-A":
+    #    print "gap %d\n" %gap
+    #DEBUG
+
+    return gap
 
 def getNonOverlapRegions(beds):
     chr2regs = {}
@@ -185,19 +351,23 @@ def getNonOverlapRegions(beds):
     #sys.stderr.write("getNonOverlapRegions... Done sorting input beds\n")
 
     for bed in beds:
-        reg = Region(bed.chr, bed.start, bed.end)
-        if reg.chr not in chr2regs: #new chromosome
-            chr2regs[reg.chr] = [reg]
-        else:
-            hasoverlap = False
-            for r in chr2regs[reg.chr]:
-                if reg.start < r.end and r.start < reg.end: #overlap
-                    r.start = min( r.start, reg.start )
-                    r.end = max( r.end, reg.end )
-                    hasoverlap = True
-                    break
-            if not hasoverlap: #non-overlap
-                chr2regs[reg.chr].append(reg)
+        for i in xrange(bed.blockCount): 
+            start = bed.blockStarts[i] + bed.start
+            end = start + bed.blockSizes[i]
+            reg = Region(bed.chr, start, end)
+            #reg = Region(bed.chr, bed.start, bed.end)
+            if reg.chr not in chr2regs: #new chromosome
+                chr2regs[reg.chr] = [reg]
+            else:
+                hasoverlap = False
+                for r in chr2regs[reg.chr]:
+                    if reg.start < r.end and r.start < reg.end: #overlap
+                        r.start = min( r.start, reg.start )
+                        r.end = max( r.end, reg.end )
+                        hasoverlap = True
+                        break
+                if not hasoverlap: #non-overlap
+                    chr2regs[reg.chr].append(reg)
     return chr2regs
 
 def calcOverlap(regs1, regs2):
@@ -314,9 +484,18 @@ def writeAlignerComparisonStats(afh, fields, sample, alignerAgreement, total):
             ny += v
     afh.write("\t%d\t%d\n" %(yy, ny))
 
-def writeImperfectGeneBeds(f, gene, beds, category, sample):
+def writeImperfectGeneBeds_short(f, gene, beds, category, sample):
     for bed in beds:
         f.write("%s\t%d\t%d\t%s\t%s\t%s\n" %(bed.chr, bed.start, bed.end, gene, category, sample))
+
+def writeImperfectGeneBeds(f, gene, beds, category, sample):
+    f.write("#%s\t%s\t%s\n" %(gene, category, sample))
+    f.write("#Original:\n")
+    for bed in beds[0].originalBeds:
+        f.write("%s\n" %bed.getStr())
+    f.write("#Mapped:\n")
+    for bed in beds:
+        f.write("%s\n" %bed.getStr())
 
 def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outbasename):
     '''
@@ -337,22 +516,28 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
             sortedSamples.remove(sample)
 
     #Annotated genes of the reference genome:
+    if refname not in sample2fam2genes:
+        print refname
+        print sample2fam2genes
     ref_fam2genes = sample2fam2genes[refname] 
 
     famOutfile = "%s-coverage-fam.txt" %outbasename
     geneOutfile = "%s-coverage-gene.txt" %outbasename
     alignerOutfile = "%s-alignerComparisons.txt" %outbasename
     imperfectOutfile = "%s-imperfectGenes.txt" %outbasename #print genes that mapped imperfectly to C.Ref
-    
+    otherOutfile = "%s-yesno-noyes.txt" %outbasename #orthologs in annotation but not cactus or vice versa
+
     ffh = open(famOutfile, 'w')
     gfh = open(geneOutfile, 'w')
     afh = open(alignerOutfile, 'w')
     ifh = open(imperfectOutfile, 'w')
+    ofh = open(otherOutfile, 'w')
     
     fields=['Mapped', 'FullyMapped', 'Deletion', 'Perfect', 'Insertion', 'AnnoInsertion', 'Rearrangement', 'AnnoRearrangement', 'Folded', 'AnnoFolded']
     writeCoverageHeader(ffh, fields)
     writeCoverageHeader(gfh, fields)
-    ifh.write("#Chr\tStart\tEnd\tGene\tCategory\tSample\n")
+    #ifh.write("#Chr\tStart\tEnd\tGene\tCategory\tSample\n")
+    ifh.write("#Gene\tCategory\tSample\n")
     
     famAll = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0} #counts of geneFamilies
     famAllPc = {'Total':0.0, 'Mapped':0.0, 'FullyMapped':0.0, 'Deletion': 0.0, 'Perfect':0.0, 'Insertion':0.0, 'Rearrangement':0.0, 'Folded':0.0} 
@@ -400,6 +585,7 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
             #    continue
             if fam not in fam2gene2beds and fam in ref_fam2genes:
                 blatonly += len(genes)
+                ofh.write("%s\t%s\t%s\tYesNo\n" %(sample, fam, ",".join(genes)))
             geneSampleTotal += len(genes)
         alignerAgreement[ 'YesNo' ] = blatonly
 
@@ -468,6 +654,8 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
                         blatcactus += 'IA'
                     else:
                         blatcactus += alignedStatus
+                elif cactus == 'P': #blat = No and cactus == P
+                    ofh.write("%s\t%s\t%s\tNoYesP\n" %(sample, fam, gene))
                 alignerAgreement[ blatcactus ] += 1.0
             
             #geneSample['Total'] += total
@@ -531,6 +719,7 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
     gfh.close()
     ifh.close()
     afh.close()
+    ofh.close()
 
 def coverage(sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outbasename):
     '''
@@ -692,132 +881,132 @@ def getNumsam2numgene(gene2sams):
             numsam2numgene[numsam] = 1
     return numsam2numgene
 
-def drawSharedGenes(xdata, cat2ydata, outbasename, options):
-    options.out = outbasename
-    fig, pdf = libplot.initImage(11.2, 10.0, options)
-    axes = fig.add_axes( [0.12, 0.18, 0.85, 0.75] )
-    
-    axes.set_title("Shared gene families")
-    lines = []
-    linenames = sorted( cat2ydata.keys() )
-    colors = libplot.getColors6()
-    markers = ['^', 'o', 'd', 'p', 'v', '*']
-    for i, cat in enumerate(linenames):
-        ydata = cat2ydata[cat]
-        l = axes.plot(xdata, ydata, color=colors[i], marker=markers[i], markeredgecolor=colors[i], linestyle='-')
-        lines.append(l)
-    axes.set_xlabel( 'Number of samples' )
-    axes.set_ylabel( 'Number of gene families' )
-
-    axes.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
-    axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
-    
-    legend = pyplot.legend( lines, linenames, numpoints=1, loc='best' )
-    legend.__drawFrame = False
-
-    libplot.writeImage( fig, pdf, options)
-
-def sharedGenes(sample2fam2gene2beds, sample2fam2genes, gene2fam, outbasename, options):
-    '''
-    Count/draw: gene to number of samples for (annotated) and (mapped perfectly to Ref)
-    '''
-    fam2samAnno = {} 
-    for sample, fams in sample2fam2genes.iteritems():
-        for fam in fams:
-            if fam not in sample2fam2gene2beds[sample]:
-                sys.stderr.write("Sample %s: gene family with ID %s is in genelist but not in beds\n" %(sample, fam))
-                continue
-
-            if fam not in fam2samAnno:
-                fam2samAnno[fam] = [sample]
-            elif sample not in fam2samAnno[fam]:
-                fam2samAnno[fam].append(sample)
-    s2gAnno = getNumsam2numgene(fam2samAnno)
-
-    famgene2samRef = {}
-    famgene2samRefFull = {}
-    famgene2samRefPerfect = {}
-    famgene2perfectGenes = {}
-
-    for sample, fam2gene2beds in sample2fam2gene2beds.iteritems():
-        for fam, gene2beds in fam2gene2beds.iteritems():
-            if fam not in sample2fam2genes[sample]:
-                sys.stderr.write("Sample %s: gene family %s is in beds but not in genelist\n" %(sample, fam))
-                continue
-            
-            if fam not in famgene2samRef:
-                famgene2samRef[fam] = [sample]
-            elif sample not in famgene2samRef[fam]:
-                famgene2samRef[fam].append(sample)
-            
-            #check for full & perfect:
-            isfull = False
-            perfectGene = None
-                
-            for gene, beds in gene2beds.iteritems():
-                genelength = sample2fam2genes[sample][fam][gene]
-                status = getMapStatus(beds, genelength) ## {'deletion':int, 'rearrangement':False, 'insertion':int, 'folded':False}
-                if status['deletion'] == 0:
-                    isfull = True
-                    if not status['rearrangement'] and not status['folded'] and status['insertion'] == 0:
-                        perfectGene = beds
-                        break
-                if perfectGene:
-                    break
-            if isfull:
-                if fam not in famgene2samRefFull:
-                    famgene2samRefFull[fam] = [sample]
-                elif sample not in famgene2samRefFull[fam]:
-                    famgene2samRefFull[fam].append(sample)
-            if perfectGene:
-                if fam not in famgene2samRefPerfect:
-                    famgene2samRefPerfect[fam] = [sample]
-                    famgene2perfectGenes[fam] = [perfectGene]
-                elif sample not in famgene2samRefPerfect[fam]:
-                    famgene2samRefPerfect[fam].append(sample)
-                    famgene2perfectGenes[fam].append(perfectGene)
-    
-    s2gRef = getNumsam2numgene(famgene2samRef)
-    s2gRefFull = getNumsam2numgene(famgene2samRefFull)
-    s2gRefPerfect = getNumsam2numgene(famgene2samRefPerfect)
-    s2gRefPerfectAligned = checkAlign(famgene2perfectGenes)
-
-    #Print to output file:
-    outfile = "%s-gene2numsam" %outbasename
-    f = open(outfile, 'w')
-    f.write("#Number of gene families\tNumber of samples, annotated\tC.Ref\tC.Ref, fully mapped\tC.Ref, perfectly mapped\tC.Ref, perfectly mapped and all aligned\n")
-    
-    cumulativeAnno = 0
-    cumulativeRef = 0
-    cumulativeRefFull = 0
-    cumulativeRefPerfect = 0
-    cumulativeRefPerfectAligned = 0
-    assert len(sample2fam2genes) == len(sample2fam2gene2beds)
-    xdata = xrange(len(sample2fam2genes), 0, -1)
-    cat2ydata = {'Annotated':[], 'CRef':[], 'CRefFull':[], 'CRefPerfect':[], 'CRefPerfectAligned':[]}
-
-    for s in xrange(len(sample2fam2genes), 0, -1):
-        if s in s2gAnno:
-            cumulativeAnno += s2gAnno[s]
-        if s in s2gRef:
-            cumulativeRef += s2gRef[s]
-        if s in s2gRefFull:
-            cumulativeRefFull += s2gRefFull[s]
-        if s in s2gRefPerfect:
-            cumulativeRefPerfect += s2gRefPerfect[s]
-        if s in s2gRefPerfectAligned:
-            cumulativeRefPerfectAligned += s2gRefPerfectAligned[s]
-        f.write( "%d\t%d\t%d\t%d\t%d\t%d\n" %(s, cumulativeAnno, cumulativeRef, cumulativeRefFull, cumulativeRefPerfect, cumulativeRefPerfectAligned) )
-        cat2ydata['Annotated'].append(cumulativeAnno)
-        cat2ydata['CRef'].append(cumulativeRef)
-        cat2ydata['CRefFull'].append(cumulativeRefFull)
-        cat2ydata['CRefPerfect'].append(cumulativeRefPerfect)
-        cat2ydata['CRefPerfectAligned'].append(cumulativeRefPerfectAligned)
-
-    f.close()
-
-    #Draw scatter plot
-    drawSharedGenes(xdata, cat2ydata, outbasename, options)
+#def drawSharedGenes(xdata, cat2ydata, outbasename, options):
+#    options.out = outbasename
+#    fig, pdf = libplot.initImage(11.2, 10.0, options)
+#    axes = fig.add_axes( [0.12, 0.18, 0.85, 0.75] )
+#    
+#    axes.set_title("Shared gene families")
+#    lines = []
+#    linenames = sorted( cat2ydata.keys() )
+#    colors = libplot.getColors6()
+#    markers = ['^', 'o', 'd', 'p', 'v', '*']
+#    for i, cat in enumerate(linenames):
+#        ydata = cat2ydata[cat]
+#        l = axes.plot(xdata, ydata, color=colors[i], marker=markers[i], markeredgecolor=colors[i], linestyle='-')
+#        lines.append(l)
+#    axes.set_xlabel( 'Number of samples' )
+#    axes.set_ylabel( 'Number of gene families' )
+#
+#    axes.yaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+#    axes.xaxis.grid(b=True, color="#CCCCCC", linestyle='-', linewidth=0.005)
+#    
+#    legend = pyplot.legend( lines, linenames, numpoints=1, loc='best' )
+#    legend.__drawFrame = False
+#
+#    libplot.writeImage( fig, pdf, options)
+#
+#def sharedGenes(sample2fam2gene2beds, sample2fam2genes, gene2fam, outbasename, options):
+#    '''
+#    Count/draw: gene to number of samples for (annotated) and (mapped perfectly to Ref)
+#    '''
+#    fam2samAnno = {} 
+#    for sample, fams in sample2fam2genes.iteritems():
+#        for fam in fams:
+#            if fam not in sample2fam2gene2beds[sample]:
+#                sys.stderr.write("Sample %s: gene family with ID %s is in genelist but not in beds\n" %(sample, fam))
+#                continue
+#
+#            if fam not in fam2samAnno:
+#                fam2samAnno[fam] = [sample]
+#            elif sample not in fam2samAnno[fam]:
+#                fam2samAnno[fam].append(sample)
+#    s2gAnno = getNumsam2numgene(fam2samAnno)
+#
+#    famgene2samRef = {}
+#    famgene2samRefFull = {}
+#    famgene2samRefPerfect = {}
+#    famgene2perfectGenes = {}
+#
+#    for sample, fam2gene2beds in sample2fam2gene2beds.iteritems():
+#        for fam, gene2beds in fam2gene2beds.iteritems():
+#            if fam not in sample2fam2genes[sample]:
+#                sys.stderr.write("Sample %s: gene family %s is in beds but not in genelist\n" %(sample, fam))
+#                continue
+#            
+#            if fam not in famgene2samRef:
+#                famgene2samRef[fam] = [sample]
+#            elif sample not in famgene2samRef[fam]:
+#                famgene2samRef[fam].append(sample)
+#            
+#            #check for full & perfect:
+#            isfull = False
+#            perfectGene = None
+#                
+#            for gene, beds in gene2beds.iteritems():
+#                genelength = sample2fam2genes[sample][fam][gene]
+#                status = getMapStatus(beds, genelength) ## {'deletion':int, 'rearrangement':False, 'insertion':int, 'folded':False}
+#                if status['deletion'] == 0:
+#                    isfull = True
+#                    if not status['rearrangement'] and not status['folded'] and status['insertion'] == 0:
+#                        perfectGene = beds
+#                        break
+#                if perfectGene:
+#                    break
+#            if isfull:
+#                if fam not in famgene2samRefFull:
+#                    famgene2samRefFull[fam] = [sample]
+#                elif sample not in famgene2samRefFull[fam]:
+#                    famgene2samRefFull[fam].append(sample)
+#            if perfectGene:
+#                if fam not in famgene2samRefPerfect:
+#                    famgene2samRefPerfect[fam] = [sample]
+#                    famgene2perfectGenes[fam] = [perfectGene]
+#                elif sample not in famgene2samRefPerfect[fam]:
+#                    famgene2samRefPerfect[fam].append(sample)
+#                    famgene2perfectGenes[fam].append(perfectGene)
+#    
+#    s2gRef = getNumsam2numgene(famgene2samRef)
+#    s2gRefFull = getNumsam2numgene(famgene2samRefFull)
+#    s2gRefPerfect = getNumsam2numgene(famgene2samRefPerfect)
+#    s2gRefPerfectAligned = checkAlign(famgene2perfectGenes)
+#
+#    #Print to output file:
+#    outfile = "%s-gene2numsam" %outbasename
+#    f = open(outfile, 'w')
+#    f.write("#Number of gene families\tNumber of samples, annotated\tC.Ref\tC.Ref, fully mapped\tC.Ref, perfectly mapped\tC.Ref, perfectly mapped and all aligned\n")
+#    
+#    cumulativeAnno = 0
+#    cumulativeRef = 0
+#    cumulativeRefFull = 0
+#    cumulativeRefPerfect = 0
+#    cumulativeRefPerfectAligned = 0
+#    assert len(sample2fam2genes) == len(sample2fam2gene2beds)
+#    xdata = xrange(len(sample2fam2genes), 0, -1)
+#    cat2ydata = {'Annotated':[], 'CRef':[], 'CRefFull':[], 'CRefPerfect':[], 'CRefPerfectAligned':[]}
+#
+#    for s in xrange(len(sample2fam2genes), 0, -1):
+#        if s in s2gAnno:
+#            cumulativeAnno += s2gAnno[s]
+#        if s in s2gRef:
+#            cumulativeRef += s2gRef[s]
+#        if s in s2gRefFull:
+#            cumulativeRefFull += s2gRefFull[s]
+#        if s in s2gRefPerfect:
+#            cumulativeRefPerfect += s2gRefPerfect[s]
+#        if s in s2gRefPerfectAligned:
+#            cumulativeRefPerfectAligned += s2gRefPerfectAligned[s]
+#        f.write( "%d\t%d\t%d\t%d\t%d\t%d\n" %(s, cumulativeAnno, cumulativeRef, cumulativeRefFull, cumulativeRefPerfect, cumulativeRefPerfectAligned) )
+#        cat2ydata['Annotated'].append(cumulativeAnno)
+#        cat2ydata['CRef'].append(cumulativeRef)
+#        cat2ydata['CRefFull'].append(cumulativeRefFull)
+#        cat2ydata['CRefPerfect'].append(cumulativeRefPerfect)
+#        cat2ydata['CRefPerfectAligned'].append(cumulativeRefPerfectAligned)
+#
+#    f.close()
+#
+#    #Draw scatter plot
+#    drawSharedGenes(xdata, cat2ydata, outbasename, options)
 
 #==========================================================================
 #============================ CORE BASES ==================================
@@ -912,17 +1101,22 @@ def writeOperon(f2, operon, genes, gene2beds, numPerfect, numRearrangement, numL
             continue
         beds = gene2beds[gene]
         for bed in beds:
-            f2.write("%s\t%d\t%d\t%s;%s\n" %(bed.chr, bed.start, bed.end, gene, operon))
+            f2.write("%s\t%d\t%d\t%s\t%s;%s\n" %(bed.chr, bed.start, bed.end, bed.strand, gene, operon))
     return
 
 def checkOrderAndOrientation(genes, gene2beds):
-    #Thu May  2 16:02:36 PDT 2013: 
-    #!!! HACK: ALL WE CAN DO RIGHT NOW IS CHECK FOR ONLY THE ORDER OF THE GENES, 
-    #          NOT THE ORIENTATION UNTIL halLiftover add in additional fields
     if len(genes) <= 1:
         return True
     
     reserved = True
+    
+    #make sure all the genes of the operons have the same orientation (same strand on Ref.) (because they are on the same strand on the query genome)
+    strand = gene2beds[ genes[0] ][0].strand
+    for g in genes:
+        beds = gene2beds[ g ]
+        for b in beds:
+            if b.strand != strand:
+                return False
 
     forward = True #the order of the genes has the same direction on Ref. + strand and on the original genome + strand
     beds1 = gene2beds[ genes[0] ] 
@@ -930,11 +1124,27 @@ def checkOrderAndOrientation(genes, gene2beds):
     if beds2[0].start <= beds1[0].start:
         forward = False
 
-    for i in xrange(0, len(genes) -1):
+    #if have the strand info before mapping, check to see if the strands before & after mapping are consistent
+    if beds1[0].originalStrand != '.':
+        if beds1[0].originalStrand == beds1[0].strand: #consistent strands
+            forward = True
+        else:
+            forward = False
+    #DEBUG:
+    #if beds1[0].name in ['NP_415077.1', 'NP_415078.1']:
+    #    print beds1[0].name
+    #    print beds1[0].originalStrand
+    #    print beds1[0].strand
+    #    print forward
+    #END DEBUG
+
+    for i in xrange(0, len(genes) - 1 ):
         beds1 = gene2beds[ genes[i] ]
+        start1 = min([bed.start for bed in beds1])
         beds2 = gene2beds[ genes[i+1] ]
-        if (forward and beds1[0].start > beds2[0].start) or \
-           (not forward and beds2[0].start > beds1[0].start):
+        start2 = min([bed.start for bed in beds2])
+        if (forward and start1 > start2) or \
+           (not forward and start2 > start1):
             return False
          
     return reserved
@@ -964,6 +1174,9 @@ def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
                 numLost += 1
                 continue
             status = getMapStatus(gene2beds[gene], gene2len[gene])
+            #print gene
+            #print status
+
             #status = {'deletion':0, 'rearrangement':False, 'insertion':0, 'folded':False}
             if status['deletion'] == 0 and status['insertion'] == 0 and not status['rearrangement'] and not status['folded']:
                 numPerfect += 1
@@ -1006,6 +1219,8 @@ def readBedFile(file):
         if len(line) == 0 or line[0] == "#":
             continue
         bed = Bed(line)
+        if bed.blockCount == 0:
+            continue
         if bed.name not in beds:
             beds[bed.name] = [bed]
         else:
@@ -1035,6 +1250,10 @@ def readBedFiles(indir):
         samplepath = os.path.join(indir, sample)
         if not os.path.isdir(samplepath):
             sample = sample.split('.')[0]
+        #hack:
+        if sample == 'log' or sample =='sampleConvertName':
+            continue
+        #end hack:
         sample2beds[sample] = readSampleBedFiles( samplepath )
     return sample2beds
 
@@ -1064,7 +1283,8 @@ def readGeneLists(indir):
     for sample in os.listdir(indir):
         filename = os.path.join(indir, sample)
         genes = readGeneList(filename)
-        sample = convertToAlnum(sample) 
+        #sample = convertToAlnum(sample) ##UNCOMMENT THIS FOR ECOLI 
+        sample = convertToAlnum(sample) ##UNCOMMENT THIS FOR ECOLI 
         sample2genes[sample] = genes
     return sample2genes
 
@@ -1216,7 +1436,7 @@ def getSample2fam2genes(sample2genes, gene2fam):
         for gene, length in genes.iteritems():
             if gene not in gene2fam:
                 #raise ValueError("gene %s is not found in the geneClusters file.\n" %gene)
-                #sys.stderr.write("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
+                sys.stderr.write("gene %s is not found in the geneClusters file. Sample %s\n" %(gene, sample))
                 continue
             fam = gene2fam[gene]
             if fam not in sam2fam2genes[sample]:
@@ -1242,6 +1462,22 @@ def getSample2fam2gene2beds(sample2beds, gene2fam):
         sam2fam2gene2beds[sample] = fam2gene2beds
     return sam2fam2gene2beds
 
+def setOriginalBeds(sample2beds, sample2beds_original):
+    for sample, gene2beds in sample2beds.iteritems():
+        if sample not in sample2beds_original:
+            continue
+        gene2beds_original = sample2beds_original[sample]
+        for gene, beds in gene2beds.iteritems():
+            if gene not in gene2beds_original:
+                continue
+            beds_original = gene2beds_original[gene]
+            assert len(beds_original) > 0
+
+            originalStrand = beds_original[0].strand
+            for i in xrange( len(beds) ):
+                beds[i].setOriginalBeds(beds_original)
+                beds[i].originalStrand = originalStrand
+
 def main():
     #bed directory: bed files, each containing genes of each sample mapped to Ref.
     #gene list directory: genelist files, each containing genes of each sample. Format: each line contains a <gene/protein name>\t<gene/protein sequence length>
@@ -1249,15 +1485,16 @@ def main():
     
     usage = "%prog <bed directory> <gene list directory> <output basename> <geneClusters> [<gene2sample psl directory>]"
     parser = OptionParser(usage = usage)
+    parser.add_option('--sampleBeds', dest='sampleBedDir', help='Directory containing the original (not the mapped to Ref files) sample bed files representing genes of each sample. Default=%default')
     parser.add_option('-r', '--ref', dest='ref', help='reference genome')
     parser.add_option('--refgenes', dest='refbed', help='Bed formatted file containing gene info of the reference genome.')
     parser.add_option('-s', '--geneStatus', dest='gstatus', help='Specify the list of annotated genes that were folded/rearranged')
     parser.add_option('-w', '--wiggle', dest='wiggle', help='Wiggle file showing the coverage of each position')
     parser.add_option('-o', '--operons', dest='operonFile', help='File containing operon set. Default=%default' )
 
-    libplot.initOptions(parser)
+    #libplot.initOptions(parser)
     options, args = parser.parse_args()
-    libplot.checkOptions(options, parser)
+    #libplot.checkOptions(options, parser)
 
     if len(args) < 4:
         parser.error("Required at least 4 inputs\n")
@@ -1272,6 +1509,13 @@ def main():
     sys.stderr.write("Done reading input bed files\n")
     sample2genes = readGeneLists(args[1]) #list of annotated genes of each sample
     sys.stderr.write("Done reading input gene lists\n")
+
+    #read the original bed files of the samples if given:
+    if options.sampleBedDir and os.path.exists(options.sampleBedDir):
+        sample2beds_original = readBedFiles(options.sampleBedDir)
+        sys.stderr.write("Done reading bed files of sample original (unmapped) genes\n")
+        #update the original strand information:
+        setOriginalBeds(sample2beds, sample2beds_original)
 
     #number of coding bases share by all samples
     numsam = len( sample2beds.keys() )
