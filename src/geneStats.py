@@ -433,9 +433,9 @@ def compareAlignments( beds1, beds2, coverage ):
     else:
         return 3 #other
 
-def checkAligned( qbeds, tgene2beds, tgenes ):
+def checkAligned( qbeds, tgene2beds, tgenes, minCoverage ):
     #qbeds:
-    minCoverage = 90.0
+    #minCoverage = 90.0
     #categories = {1: 'totalAligned', 2: 'partiallyAligned', 3:'other'}
     categories = {1: 'A', 2: 'IA', 3:'O'}
 
@@ -497,7 +497,7 @@ def writeImperfectGeneBeds(f, gene, beds, category, sample):
     for bed in beds:
         f.write("%s\n" %bed.getStr())
 
-def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outbasename):
+def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, gene2fam, gene2status, outbasename, minCoverage):
     '''
     For each sample:
         how many annotated genes does the Ref contain (partially and fully)? (mapped)
@@ -645,11 +645,15 @@ def coverage2(refname, ref_gene2beds, sample2fam2gene2beds, sample2fam2genes, ge
                     writeImperfectGeneBeds(ifh, gene, beds, 'Folded', sample)
                     cactus = 'Folded'
 
+                if cactus == "NP":
+                    print status
+                    print gene, sample
+
                 blatcactus = "%s%s" % (blat, cactus)
                 #alignerAgreement[ blatcactus ] += 1.0
                 #if blatcactus == "YesP" :
                 if blat == "Yes": #(cactus != "No")
-                    alignedStatus = checkAligned(beds, ref_gene2beds, ref_fam2genes[fam]) #A: 100% aligned, IA (imperfect aligned): >= XX% aligned, O: others
+                    alignedStatus = checkAligned(beds, ref_gene2beds, ref_fam2genes[fam], minCoverage) #A: 100% aligned, IA (imperfect aligned): >= XX% aligned, O: others
                     if alignedStatus == 'A' and cactus != 'P':#HACK
                         blatcactus += 'IA'
                     else:
@@ -1104,16 +1108,54 @@ def writeOperon(f2, operon, genes, gene2beds, numPerfect, numRearrangement, numL
             f2.write("%s\t%d\t%d\t%s\t%s;%s\n" %(bed.chr, bed.start, bed.end, bed.strand, gene, operon))
     return
 
-def checkOrderAndOrientation(genes, gene2beds):
+#def checkOrderAndOrientation(genes, gene2beds):
+#    if len(genes) <= 1:
+#        return True
+#    
+#    reserved = True
+#    
+#    #make sure all the genes of the operons have the same orientation (same strand on Ref.) (because they are on the same strand on the query genome)
+#    strand = gene2beds[ genes[0] ][0].strand
+#    for g in genes:
+#        beds = gene2beds[ g ]
+#        for b in beds:
+#            if b.strand != strand:
+#                return False
+#
+#    forward = True #the order of the genes has the same direction on Ref. + strand and on the original genome + strand
+#    beds1 = gene2beds[ genes[0] ] 
+#    beds2 = gene2beds[ genes[1] ]
+#    if beds2[0].start <= beds1[0].start:
+#        forward = False
+#
+#    #if have the strand info before mapping, check to see if the strands before & after mapping are consistent
+#    if beds1[0].originalStrand != '.':
+#        if beds1[0].originalStrand == beds1[0].strand: #consistent strands
+#            forward = True
+#        else:
+#            forward = False
+#
+#    for i in xrange(0, len(genes) - 1 ):
+#        beds1 = gene2beds[ genes[i] ]
+#        start1 = min([bed.start for bed in beds1])
+#        beds2 = gene2beds[ genes[i+1] ]
+#        start2 = min([bed.start for bed in beds2])
+#        if (forward and start1 > start2) or \
+#           (not forward and start2 > start1):
+#            return False
+#         
+#    return reserved
+
+def checkOrderAndOrientation(genes, gene2beds, ref_gene2beds):
     if len(genes) <= 1:
         return True
     
     reserved = True
     
-    #make sure all the genes of the operons have the same orientation (same strand on Ref.) (because they are on the same strand on the query genome)
-    strand = gene2beds[ genes[0] ][0].strand
+    #make sure all beds of all the genes of the operons have the same orientation (same strand on Ref.) 
     for g in genes:
         beds = gene2beds[ g ]
+        strand = beds[0].strand
         for b in beds:
             if b.strand != strand:
                 return False
@@ -1130,13 +1172,15 @@ def checkOrderAndOrientation(genes, gene2beds):
             forward = True
         else:
             forward = False
-    #DEBUG:
-    #if beds1[0].name in ['NP_415077.1', 'NP_415078.1']:
-    #    print beds1[0].name
-    #    print beds1[0].originalStrand
-    #    print beds1[0].strand
-    #    print forward
-    #END DEBUG
+
+    #Make sure the the genes are mapped to consistent strands to Ref.
+    for g in genes:
+        beds = gene2beds[g]
+        ref_beds = ref_gene2beds[g]
+        strand1 = beds[0].strand
+        strand2 = ref_beds[0].strand
+        if (forward and strand1 != strand2) or (not forward and strand1 == strand2):
+            return False
 
     for i in xrange(0, len(genes) - 1 ):
         beds1 = gene2beds[ genes[i] ]
@@ -1149,7 +1193,7 @@ def checkOrderAndOrientation(genes, gene2beds):
          
     return reserved
 
-def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
+def checkOperons(operon_gene2beds, operons, gene2beds, gene2len, g2status, outbasename):
     '''Check to see if: a/ all genes are reserved on C.Ref and 
                         b/ their orders and orientations are reserved on C.Ref
     '''
@@ -1178,7 +1222,9 @@ def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
             #print status
 
             #status = {'deletion':0, 'rearrangement':False, 'insertion':0, 'folded':False}
-            if status['deletion'] == 0 and status['insertion'] == 0 and not status['rearrangement'] and not status['folded']:
+            if (status['deletion'] == 0 and status['insertion'] == 0 and not status['rearrangement'] and not status['folded']) or\
+               (float(status['deletion'])/gene2len[gene] < 0.1 and float(status['insertion'])/gene2len[gene] < 0.1 and \
+                (status['insertion'] - status['deletion'])%3 == 0 and not status['rearrangement'] and not status['folded']):
                 numPerfect += 1
             elif status['rearrangement'] or status['folded']:
                 numRearrangement += 1
@@ -1186,20 +1232,22 @@ def checkOperons(operons, gene2beds, gene2len, g2status, outbasename):
         if numPerfect == len(genes):
             geneReserved += 1
             gR = "Yes"
-        if numLost == 0 and numRearrangement == 0:
-            if checkOrderAndOrientation(genes, gene2beds):
+        #if numLost == 0 and numRearrangement == 0:
+        if gR == "Yes" and numRearrangement == 0:
+            if checkOrderAndOrientation(genes, gene2beds, operon_gene2beds):
                 ooReserved += 1
                 ooR = "Yes"
         f.write("%s\t%s\t%s\n" %(operon, gR, ooR))
 
         #if gR == "No" or ooR == "No":
         if ooR == "No":
+        #if gR == "Yes" and ooR == "No":
             writeOperon(f2, operon, genes, gene2beds, numPerfect, numRearrangement, numLost)
     
     #Write summary stats
     f.write("\n#Total number of operons: %d\n" %len(operons))
     f.write("#Operons with all genes perfectly mapped: %d\t%.2f\n" %(geneReserved, getPc(geneReserved, len(operons)) ))
-    f.write("#Operons with gene order and orientation reserved: %d\t%.2f\n" %(ooReserved, getPc(ooReserved, len(operons)) ))
+    f.write("#Operons with gene order and orientation reserved: %d\t%.2f\n" %(ooReserved, getPc(ooReserved, geneReserved) ))
     f.close()
     f2.close()
 
@@ -1486,11 +1534,13 @@ def main():
     usage = "%prog <bed directory> <gene list directory> <output basename> <geneClusters> [<gene2sample psl directory>]"
     parser = OptionParser(usage = usage)
     parser.add_option('--sampleBeds', dest='sampleBedDir', help='Directory containing the original (not the mapped to Ref files) sample bed files representing genes of each sample. Default=%default')
+    parser.add_option('-c', '--coverage', dest='coverage', type='float', default=90.0, help='Minimum alignement coverage to be called homologous. Default = %default')
     parser.add_option('-r', '--ref', dest='ref', help='reference genome')
     parser.add_option('--refgenes', dest='refbed', help='Bed formatted file containing gene info of the reference genome.')
     parser.add_option('-s', '--geneStatus', dest='gstatus', help='Specify the list of annotated genes that were folded/rearranged')
     parser.add_option('-w', '--wiggle', dest='wiggle', help='Wiggle file showing the coverage of each position')
     parser.add_option('-o', '--operons', dest='operonFile', help='File containing operon set. Default=%default' )
+    parser.add_option('--operonGenes', dest='operonBeddir', help='Directory containing bed files of the genes of K12 MG165... ecoli')
 
     #libplot.initOptions(parser)
     options, args = parser.parse_args()
@@ -1534,15 +1584,17 @@ def main():
         assert options.refbed and  os.path.exists( options.refbed )
         ref_gene2beds = readSampleBedFiles( options.refbed )
         sys.stderr.write("Done reading reference annotated genes\n")
-        coverage2(options.ref, ref_gene2beds, sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
+        coverage2(options.ref, ref_gene2beds, sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2], options.coverage)
     else:
         coverage(sam2fam2gene2beds, sam2fam2genes, gene2fam, g2status, args[2])
     
     ##sharedGenes(sam2fam2gene2beds, sam2fam2genes, gene2fam, args[2], options) 
     
     if options.operonFile:
+        assert options.operonBeddir and os.path.exists( options.operonBeddir )
+        operon_gene2beds = readSampleBedFiles( options.operonBeddir )
         sample, operons = readOperonFile(options.operonFile)
-        checkOperons(operons, sample2beds[sample], sample2genes[sample], g2status, args[2])
+        checkOperons(operon_gene2beds, operons, sample2beds[sample], sample2genes[sample], g2status, args[2])
 
 if __name__ == "__main__":
     from referenceViz.src.geneStats import *
